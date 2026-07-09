@@ -1,0 +1,37 @@
+id: ml-txn-anomaly-001
+title: Anomalous transaction detection
+track: ml
+difficulty: medium
+duration_minutes: 90
+status: draft
+
+summary: >
+  Build a model that flags potentially anomalous transactions for manual review
+  from a synthetic payments-platform transaction log. Tests handling of heavy class
+  imbalance, leakage detection (a planted post-hoc column), sensible evaluation
+  under an alert-budget constraint, and clear communication of trade-offs.
+
+signals:
+  - detects the planted leakage column (`review_outcome`) and excludes it
+  - handles ~0.6% positive class deliberately (resampling, class weights, or threshold choice)
+  - chooses evaluation aligned to the alert-budget framing (precision@k / PR-AUC, not accuracy)
+  - splits by time, not randomly, and can say why
+  - communicates what the model misses and what they'd do with more time
+
+resources:
+  expected_peak_ram_gb: 2
+  dataset_size_mb: 30
+
+environment:
+  requires_llm_proxy: false
+  extra_pip: []
+  open_internet: false
+
+candidate_paths:
+  - problem.md
+  - starter/
+  - data/README.md
+
+data:
+  generator: data/generate.py
+  seed: 20260901

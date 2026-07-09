@@ -1,0 +1,36 @@
+# Problem manifest — consumed by the provisioner and admin console.
+id: <track>-<slug>-<nnn>
+title: Human-readable title
+track: ml                      # ds | ml | llm | mle
+difficulty: medium             # easy | medium | hard
+duration_minutes: 90
+status: draft                  # draft | hidden | active | retired
+
+summary: >
+  One-paragraph interviewer-facing summary of what this problem tests.
+
+signals:                       # what a strong performance demonstrates
+  - e.g. handling class imbalance deliberately
+  - e.g. sound train/validation methodology
+
+resources:
+  expected_peak_ram_gb: 2      # must fit the 8 GB instance budget
+  dataset_size_mb: 50          # materialized size of generated data
+
+environment:
+  requires_llm_proxy: false    # true → session gets a proxy key provisioned
+  extra_pip: []                # packages beyond the base image, if any
+  open_internet: false         # override session default (admin may veto)
+
+# Candidate-visible paths (everything else stays interviewer-only).
+candidate_paths:
+  - problem.md
+  - starter/
+  - data/README.md
+
+data:
+  generator: data/generate.py  # must be seeded & reproducible
+  seed: 20260901
+
+# Reserved for multi-stage simulation scenarios; single-stage problems omit this.
+# stages: []
