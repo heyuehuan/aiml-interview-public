@@ -1,0 +1,13 @@
+# generated datasets are never committed — regenerate via data/generate.py
+problems/*/data/out/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# tooling
+.DS_Store
+.idea/
+.vscode/
