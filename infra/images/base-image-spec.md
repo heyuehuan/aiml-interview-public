@@ -1,7 +1,8 @@
 # Base image specification
 
-Target host: **small VM** — 2 vCPU, 8 GB RAM, EBS storage (recommend ≥60 GB gp3).
-One candidate per instance. Workspace runs as containers; the host stays thin.
+Target host: **small VM** — 2 vCPU, 8 GB RAM, EBS storage (recommend ≥60 GB gp3),
+single persistent instance. One candidate at a time (admin concurrent); workspace runs
+as containers and is reset between candidates; the host stays thin.
 
 ## Landscape survey → what to preinstall
 
@@ -56,20 +57,23 @@ environments/
 └── layers/                  # tier-2 optional pip layers
 ```
 
-- Base: `python:3.12-slim-bookworm` (Debian). Host OS (Rocky 9 / AL2023 — see
+- Base: `python:3.12-slim-bookworm` (Debian). Host OS: RHEL8-family (Rocky/Alma 8,
+  for broad enterprise compatibility); the host only runs the container
+  runtime + platform services.
 - **code-server** (VS Code OSS server, MIT) with Python + Jupyter extensions
   pre-installed; candidate reaches it and JupyterLab through the portal over HTTPS.
 - Estimated image size: ~2.5–3 GB compressed pull, well within 60 GB EBS.
 
-## RAM budget check (worst realistic case)
+## RAM budget check (worst realistic case, everything co-resident)
 
 | | GB |
 |---|---|
-| OS + Docker + audit agent | 0.8 |
+| OS + container runtime + audit agent | 0.8 |
+| Portal + admin console + proxy | 0.5 |
 | code-server + extensions | 0.7 |
 | JupyterLab server | 0.3 |
 | Kernel with 400k-row pandas workload + xgboost/torch training | 2–4 |
-| **Headroom** | **≥2** |
+| **Headroom** | **≥1.5** |
 
 Problems declare `expected_peak_ram_gb`; CI runs each reference solution in a
 memory-capped container to enforce it.

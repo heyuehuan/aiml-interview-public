@@ -21,21 +21,33 @@ depth, not just a final answer.
 
 ## How a session works (target design)
 
-1. **Admin** creates an interview session: picks problems, generates a one-time access code, sets time window and LLM budget.
-2. **Infra** provisions (or assigns from a warm pool) a workspace instance from the base image, seeded with the selected problems and datasets.
-3. **Candidate** enters the access code in the portal and lands in their workspace (VS Code / Jupyter / terminal) with the problem statement.
-4. **Logging** continuously records auditable checkpoints: git snapshots of the workspace, shell command history, notebook cell executions, and every LLM call through the proxy.
-5. **Admin** reviews the session live or afterwards: final artifacts plus the intermediate record of how the candidate got there.
+One persistent server hosts everything; one candidate at a time, admin working
+concurrently. Full lifecycle in `docs/architecture.md`.
+
+1. **Admin** configures a session: problems, candidate display name, duration, LLM
+   models/budget, terms text, internet policy; issues an access code.
+2. **Candidate** enters the access code, accepts the terms, and lands on a personalized
+   home page with tools: Problems, IDE (OSS Code), Jupyter, Terminal.
+3. **Logging** continuously records auditable checkpoints on-host: git snapshots of the
+   workspace, shell history, notebook cell executions, and every LLM call via the proxy.
+4. **Admin** moderates live (progress view, hints, extend/terminate) and reviews
+   afterwards; at close, the session exports one audit artifact bundle.
+5. **Reset** wipes the workspace and revokes the session key before the next candidate.
 
 ## Status & roadmap
 
-- **Phase 1 (now): problems.** Problem format, registry, datasets, rubrics, first problem set. See `problems/README.md`.
-- **Phase 2: environment.** Base image + docker-compose workspace (code-server, JupyterLab) sized for small VM.
-- **Phase 3: proxy + logging.** LiteLLM-based proxy, audit pipeline.
-- **Phase 4: ui + admin.** Portal, session management, moderation.
-- **Phase 5: simulation scenarios.** Multi-step, role-realistic simulations (on-call triage, model debugging, ambiguous stakeholder asks).
+- **Phase 1 (now): problems.** Problem format, registry, template, contribution guide.
+  Dataset production is deferred and handled separately. See `problems/README.md`.
+- **Phase 2: environment.** Workspace image + docker-compose (code-server, JupyterLab)
+  sized for small VM, with the between-candidates reset flow.
+- **Phase 3: proxy + logging.** unillm proxy over Vertex AI (Gemini), audit streams,
+  session export bundle.
+- **Phase 4: ui + admin.** Entry flow (access code → terms → home page), session
+  management, live moderation.
+- **Phase 5: simulation scenarios.** Multi-step, role-realistic simulations (on-call
+  triage, model debugging, ambiguous stakeholder asks).
 
-Open design questions and their proposed defaults live in
+(resolved items summarized at top) and reflected in `docs/architecture.md`.
 
 ## Contributing
 

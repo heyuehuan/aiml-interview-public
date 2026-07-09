@@ -38,11 +38,14 @@ never leave this repo.
 
 ## Dataset rules
 
+Dataset production is **handled separately** — the shape below is the
+contract problems design against; detailed standards come later.
+
 - **Synthetic only.** No real customer/production data, ever. Datasets are produced by
   a committed, seeded `data/generate.py` so they are reproducible and diffable.
 - Materialized size ≤100 MB (fits the 8 GB instance budget). Declare expected peak RAM
   in `problem.yaml`.
-- Generated data files are **not committed** (see `.gitignore`); CI regenerates them.
+- Generated data files are **not committed** (see `.gitignore`).
 - Public datasets: commit a download script + checksum, not the data.
 
 ## Writing a good problem
@@ -60,9 +63,4 @@ never leave this repo.
 
 ## Adding a problem
 
-1. `cp -r _template <track>-<slug>-<nnn>` and fill in every file.
-2. Run `python data/generate.py` and sanity-check output + data dictionary.
-3. Dogfood it end-to-end within the stated time box.
-4. Add an entry to `registry.yaml` (problems default to `hidden` until an admin
-   enables them).
-5. PR review must include one person solving it cold.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) — contract, quality bar, and PR checklist.
