@@ -389,6 +389,52 @@ def mark_reset(session_id, actor="admin"):
     return _transition(session_id, "reset", actor, event="session_reset")
 
 
+# --- problem moderation (per session, per problem) --------------------------
+def get_released(session_id, problem_id):
+    """How many subproblems are released to the candidate (0 = not shown yet)."""
+    con = db.connect()
+    try:
+        row = con.execute(
+            "SELECT released FROM moderation WHERE session_id=? AND problem_id=?",
+            (session_id, problem_id),
+        ).fetchone()
+    finally:
+        con.close()
+    return row["released"] if row else 0
+
+
+def all_released(session_id):
+    """Map of ``problem_id -> released`` for a session (missing ⇒ 0)."""
+    con = db.connect()
+    try:
+        rows = con.execute(
+            "SELECT problem_id, released FROM moderation WHERE session_id=?", (session_id,)
+        ).fetchall()
+    finally:
+        con.close()
+    return {r["problem_id"]: r["released"] for r in rows}
+
+
+def set_released(session_id, problem_id, released, actor="admin"):
+    """Set how many subproblems are visible to the candidate. Clamped to >=0; the
+    caller is responsible for the per-problem upper bound. Emits an audit event."""
+    released = max(0, int(released))
+    con = db.connect()
+    try:
+        con.execute(
+            "INSERT INTO moderation (session_id, problem_id, released, updated_at) "
+            "VALUES (?,?,?,?) ON CONFLICT(session_id, problem_id) "
+            "DO UPDATE SET released=excluded.released, updated_at=excluded.updated_at",
+            (session_id, problem_id, released, now_iso()),
+        )
+        con.commit()
+    finally:
+        con.close()
+    record_event(session_id, actor, "problem_moderated",
+                 {"problem_id": problem_id, "released": released})
+    return released
+
+
 # --- candidate authorization ------------------------------------------------
 def code_disabled_at(session):
     """Code auto-disables GRACE_MINUTES after end."""

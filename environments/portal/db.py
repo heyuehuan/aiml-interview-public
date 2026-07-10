@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS admins (
     password_hash TEXT NOT NULL,
     created_at    TEXT NOT NULL
 );
+
+-- Per-session, per-problem moderation state: how many subproblems the admin has
+-- released to the candidate. 0 = not shown yet; N = background + Q1..QN visible.
+CREATE TABLE IF NOT EXISTS moderation (
+    session_id TEXT NOT NULL,
+    problem_id TEXT NOT NULL,
+    released   INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT,
+    PRIMARY KEY (session_id, problem_id)
+);
 """
 
 

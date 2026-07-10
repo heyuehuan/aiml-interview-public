@@ -116,6 +116,22 @@ def create(req):
     return Response.redirect(f"/admin/sessions/{s['id']}")
 
 
+def _moderation_state(s):
+    """Per-problem moderation rows for the session detail page: title, released count,
+    total subproblems, and the title of the next question to reveal (for the confirm)."""
+    released = model.all_released(s["id"])
+    titles = {m["id"]: m["title"] for m in registry.problem_meta(s["problem_ids"])}
+    rows = []
+    for pid in s["problem_ids"]:
+        meta = registry.part_meta(pid)
+        r = released.get(pid, 0)
+        subs = meta["subs"]
+        next_title = subs[r]["title"] if (subs and r < len(subs)) else ""
+        rows.append({"id": pid, "title": titles.get(pid, pid), "released": r,
+                     "total": meta["total"], "next_title": next_title})
+    return rows
+
+
 @router.route("GET", "/admin/sessions/<sid>")
 def detail(req, sid):
     who, redirect = _require(req)
@@ -124,7 +140,28 @@ def detail(req, sid):
     s = model.get_session(sid)
     if not s:
         return Response.not_found()
-    return Response.html(views.admin_session_detail(who, s, notice=req.query.get("notice")))
+    return Response.html(views.admin_session_detail(
+        who, s, moderation=_moderation_state(s), notice=req.query.get("notice")))
+
+
+@router.route("POST", "/admin/sessions/<sid>/moderate/<pid>")
+def moderate(req, sid, pid):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    if pid not in (s["problem_ids"] or []):
+        return Response.redirect(f"/admin/sessions/{sid}?notice={_q('That problem is not assigned to this session.')}")
+    total = registry.part_meta(pid)["total"]
+    try:
+        target = int(req.form.get("released") or 0)
+    except ValueError:
+        target = 0
+    target = max(0, min(target, total))
+    model.set_released(sid, pid, target, actor=who)
+    return Response.redirect(f"/admin/sessions/{sid}")
 
 
 @router.route("GET", "/admin/sessions/<sid>/edit")

@@ -7,13 +7,6 @@ Reviewers can review at most **200 transactions per day**; today's rule-based sy
 floods them with low-quality alerts. You have six months of historical transactions,
 a subset of which were reviewed and labeled.
 
-## Your task
-
-1. **Core:** Build a model that scores transactions by anomaly likelihood, and propose how
-   to use it under the 200-alerts/day budget. Justify your evaluation methodology.
-2. **Stretch (if time permits):** Reviewers want to know *why* a transaction was
-   flagged. Show how you'd surface per-alert explanations.
-
 ## Data
 
 In `~/workspace/data/`:
@@ -31,3 +24,15 @@ Full data dictionary in `data/README.md`.
 
 - Any preinstalled library is fair game.
 - Explain your reasoning as you go — intermediate work is part of the assessment.
+
+## Tasks
+
+### Q1 — Core: score transactions and use the alert budget
+
+Build a model that scores transactions by anomaly likelihood, and propose how to use it
+under the 200-alerts/day budget. Justify your evaluation methodology.
+
+### Q2 — Stretch: explain the alerts (if time permits)
+
+Reviewers want to know *why* a transaction was flagged. Show how you'd surface
+per-alert explanations.

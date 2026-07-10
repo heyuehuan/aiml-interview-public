@@ -112,6 +112,27 @@ button.pg-send { margin-top: 0; }
 button.pg-send:disabled { opacity: .6; cursor: default; }
 details.code-ex { margin-top: 1.2rem; }
 details.code-ex > summary { cursor: pointer; color: #9aa0ab; font-size: .9rem; }
+/* Inline-rendered problem statement (moderated candidate page). */
+.md { color: #d7dbe3; }
+.md h2, .md h3, .md h4, .md h5, .md h6 { color: #e7e9ee; line-height: 1.3; margin: 1.3rem 0 .5rem; }
+.md h2 { font-size: 1.15rem; } .md h3 { font-size: 1.02rem; } .md h4 { font-size: .95rem; }
+.md > :first-child { margin-top: 0; }
+.md p { margin: .6rem 0; }
+.md ul, .md ol { margin: .5rem 0 .5rem 1.3rem; padding: 0; }
+.md li { margin: .25rem 0; }
+.md code { background: #0b0d12; border: 1px solid #262a33; border-radius: 5px;
+  padding: .05rem .35rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .86em; color: #9fe0b8; }
+.md pre.code { margin: .7rem 0; }
+.md pre.code code { background: none; border: 0; padding: 0; color: #c4c9d2; }
+.md table { margin: .8rem 0; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid #262a33; vertical-align: top; }
+.md hr { border: 0; border-top: 1px solid #262a33; margin: 1.2rem 0; }
+.md blockquote { margin: .7rem 0; padding: .1rem .9rem; border-left: 3px solid #333844; color: #b3b9c4; }
+.md a { color: #6ea3ff; }
+.prob-head { justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.locked { color: #9aa0ab; font-style: italic; }
+.qbadge { font-size: .78rem; }
 """
 
 
@@ -285,32 +306,49 @@ def home(session, remaining_minutes):
                 "Your workspace is ready. Pick a tool to get started.")
 
 
-def problems_page(session, meta=None):
-    meta = meta or [{"id": pid, "title": pid, "summary": ""} for pid in session["problem_ids"]]
-    if not meta:
+def problems_page(session, items=None):
+    """Moderated problems page. Each item: {id, title, summary, released, html}. The
+    statement is rendered inline (server-side) and only up to the question the
+    interviewer has released; ``released == 0`` shows a locked placeholder. The copy
+    button ships data + starter only — never the written statement."""
+    items = items or [{"id": pid, "title": pid, "summary": "", "released": 0, "html": None}
+                      for pid in session["problem_ids"]]
+    if not items:
         body = ('<div class="card wide"><p class="muted">No problems assigned yet — '
                 'check with your interviewer.</p></div>')
         return page("Problems", body)
 
-    cards = "".join(
-        f"""<div class="card wide" style="margin-bottom:1rem">
-  <div class="row" style="justify-content:space-between;align-items:flex-start;gap:1rem">
+    cards = ""
+    for p in items:
+        released = p.get("released", 0)
+        if released >= 1 and p.get("html"):
+            badge = f'<span class="pill state-active qbadge">Q1–Q{released} released</span>' if released > 1 \
+                else '<span class="pill state-active qbadge">Q1 released</span>'
+            copy_btn = (f'<button type="button" class="copy-btn secondary" data-pid="{esc(p["id"])}">'
+                        'Copy data to my workspace</button>')
+            statement = f'<div class="md" style="margin-top:1rem">{p["html"]}</div>'
+        else:
+            badge = '<span class="pill state-created qbadge">not released yet</span>'
+            copy_btn = ""
+            statement = ('<p class="locked" style="margin-top:1rem">Your interviewer hasn’t '
+                         'shared this problem yet. Use <strong>Refresh</strong> once they do.</p>')
+        cards += f"""<div class="card wide" style="margin-bottom:1rem">
+  <div class="row prob-head">
     <div><h2 style="margin:.1rem 0 .3rem;font-size:1.05rem">{esc(p['title'])}</h2>
-      <p class="muted mono" style="margin:0">{esc(p['id'])}/</p></div>
-    <button type="button" class="copy-btn" data-pid="{esc(p['id'])}">Copy to my workspace</button>
+      <p class="muted mono" style="margin:0">{esc(p['id'])}/ · {badge}</p></div>
+    {copy_btn}
   </div>
-  {f'<p class="kv" style="margin:.7rem 0 0">{esc(p["summary"])}</p>' if p['summary'] else ''}
+  {statement}
 </div>"""
-        for p in meta
-    )
+
     body = f"""<div class="card wide" style="margin-bottom:1rem">
-  <p>Copy a problem's files into your workspace, then open them in the
+  <p>Your interviewer releases each question when it's time. Read it here, then work in the
      <a href="/ide/" target="_blank" rel="noopener">IDE</a> or
-     <a href="/jupyter/" target="_blank" rel="noopener">Jupyter</a> under
-     <span class="mono">~/workspace/&lt;problem&gt;/</span>. Each problem folder holds the
-     statement (<span class="mono">problem.md</span>), the data dictionary and dataset
-     (<span class="mono">data/</span>), and any starter code.</p>
-  <div class="row"><button type="button" class="copy-btn" data-pid="all">Copy all to my workspace</button>
+     <a href="/jupyter/" target="_blank" rel="noopener">Jupyter</a>. Use
+     <strong>Copy data to my workspace</strong> to drop the dataset under
+     <span class="mono">~/workspace/&lt;problem&gt;/data/</span>.</p>
+  <div class="row"><a class="btn" href="/problems">↻ Refresh</a>
+    <button type="button" class="copy-btn secondary" data-pid="all">Copy all data to my workspace</button>
     <span id="copy-status" class="muted"></span></div>
 </div>
 {cards}
@@ -545,7 +583,52 @@ def _confirm_modal():
 </script>"""
 
 
-def admin_session_detail(admin, s, notice=None):
+def _mod_btn(sid, pid, target, label, cls="secondary", confirm=None):
+    cls_attr = f"{cls} js-confirm".strip() if confirm else cls
+    extra = f' data-confirm="{esc(confirm)}"' if confirm else ""
+    return (f'<form class="inline" method="post" action="/admin/sessions/{esc(sid)}/moderate/{esc(pid)}">'
+            f'<input type="hidden" name="released" value="{int(target)}">'
+            f'<button class="{cls_attr}" style="margin-top:0"{extra} type="submit">{esc(label)}</button></form>')
+
+
+def _moderation_panel(sid, s, moderation):
+    """Interviewer control over which question each problem shows the candidate.
+    Only meaningful before the session closes."""
+    if s["state"] not in ("created", "active") or not moderation:
+        return ""
+    rows = ""
+    for p in moderation:
+        released, total = p["released"], p["total"]
+        if released <= 0:
+            status = '<span class="pill state-reset">hidden</span>'
+        elif released >= total:
+            status = f'<span class="pill state-active">all {total} shown</span>'
+        else:
+            status = f'<span class="pill state-active">showing Q1–Q{released} of {total}</span>' if released > 1 \
+                else f'<span class="pill state-active">showing Q1 of {total}</span>'
+        acts = []
+        if released <= 0:
+            acts.append(_mod_btn(sid, p["id"], 1, "Show Q1 to candidate", cls=""))
+        else:
+            if released < total:
+                nxt = p["next_title"] or f"Q{released + 1}"
+                acts.append(_mod_btn(sid, p["id"], released + 1, f"Move to next → Q{released + 1}", cls="",
+                                     confirm=f"Reveal “{nxt}” to the candidate? "
+                                             "They must click Refresh on the Problems page to see it."))
+            acts.append(_mod_btn(sid, p["id"], 0, "Hide", cls="secondary"))
+        rows += (f'<tr><td>{esc(p["title"])}</td><td class="mono">{esc(p["id"])}</td>'
+                 f'<td>{status}</td><td><div class="row">{"".join(acts)}</div></td></tr>')
+    return f"""<div class="card wide" style="margin-top:1.2rem">
+  <h2 style="margin-top:0;font-size:1.1rem">Problem moderation</h2>
+  <p class="muted" style="margin:.2rem 0 .8rem">The candidate sees the background plus the
+     released questions, rendered on their Problems page. “Move to next” reveals the next
+     question; the candidate clicks Refresh to load it.</p>
+  <table><thead><tr><th>Problem</th><th>ID</th><th>Candidate sees</th><th></th></tr></thead>
+  <tbody>{rows}</tbody></table>
+</div>"""
+
+
+def admin_session_detail(admin, s, moderation=None, notice=None):
     note = f'<div class="ok">{esc(notice)}</div>' if notice else ""
     sid = esc(s["id"])
     actions = _actions_for(s, sid)
@@ -568,6 +651,7 @@ def admin_session_detail(admin, s, notice=None):
   {_state_pill(s['state'])}</div>
 <div class="card wide"><table>{rows}</table></div>
 <div class="card wide" style="margin-top:1.2rem"><div class="row">{actions}</div></div>
+{_moderation_panel(sid, s, moderation)}
 {_confirm_modal()}"""
     return page(f"Session — {s['candidate_name']}", body)
 
@@ -586,7 +670,7 @@ def _actions_for(s, sid):
         out.append(f'<a class="btn secondary" href="/admin/sessions/{sid}/edit">Edit</a>')
     if st == "active":
         out.append(f'<form class="inline" method="post" action="/admin/sessions/{sid}/seed-workspace">'
-                   f'<button class="secondary" type="submit">Copy problem files to workspace</button></form>')
+                   f'<button class="secondary" type="submit">Copy full problem files (incl. statement .md) to workspace</button></form>')
         out.append('<form class="inline" method="post" action="/admin/sessions/%s/extend">'
                    '<input type="number" name="minutes" value="15" min="5" style="width:5rem">'
                    '<button class="secondary" type="submit">Extend</button></form>' % sid)
