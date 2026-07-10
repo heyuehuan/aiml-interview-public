@@ -255,6 +255,60 @@ def create_session(*, candidate_name, workspace_user, problem_ids=None, duration
     return get_session(sid)
 
 
+EDITABLE_STATES = {"created"}  # once activated, the workspace is already provisioned
+
+
+def update_session(session_id, *, candidate_name, workspace_user, access_code,
+                   duration_minutes, llm_budget_usd, llm_models, internet_access,
+                   terms_text, problem_ids, actor="admin"):
+    s = get_session(session_id)
+    if s is None:
+        raise ValueError("no such session")
+    if s["state"] not in EDITABLE_STATES:
+        raise ValueError("only a not-yet-activated session can be edited")
+    code = normalize_code(access_code) if access_code else s["access_code"]
+    if not valid_code_format(code):
+        raise ValueError("access code must be 6 letters (A–Z)")
+    con = db.connect()
+    try:
+        clash = con.execute(
+            "SELECT 1 FROM sessions WHERE access_code=? AND id!=? AND state IN ('created','active')",
+            (code, session_id),
+        ).fetchone()
+        if clash:
+            raise ValueError(f"access code {code} is already in use by a live session")
+        con.execute(
+            """UPDATE sessions SET candidate_name=?, workspace_user=?, access_code=?,
+               duration_minutes=?, llm_budget_usd=?, llm_models=?, internet_access=?,
+               terms_text=?, problem_ids=? WHERE id=?""",
+            (candidate_name.strip(), workspace_user.strip(), code, int(duration_minutes),
+             float(llm_budget_usd), json.dumps(llm_models or DEFAULT_MODELS),
+             1 if internet_access else 0, terms_text, json.dumps(problem_ids or []), session_id),
+        )
+        con.commit()
+    finally:
+        con.close()
+    record_event(session_id, actor, "session_edited")
+    return get_session(session_id)
+
+
+def delete_session(session_id, actor="admin"):
+    s = get_session(session_id)
+    if s is None:
+        raise ValueError("no such session")
+    if s["state"] == "active":
+        raise ValueError("close the active session before deleting it")
+    con = db.connect()
+    try:
+        con.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+        con.commit()
+    finally:
+        con.close()
+    # Remove the session's audit dir along with the record.
+    import shutil
+    shutil.rmtree(os.path.join(DATA_DIR, "sessions", session_id), ignore_errors=True)
+
+
 def _transition(session_id, to_state, actor, extra_sql="", extra_params=(), event=None, detail=None):
     con = db.connect()
     try:

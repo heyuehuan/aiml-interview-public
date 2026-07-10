@@ -98,6 +98,57 @@ def detail(req, sid):
     return Response.html(views.admin_session_detail(who, s, notice=req.query.get("notice")))
 
 
+@router.route("GET", "/admin/sessions/<sid>/edit")
+def edit_form(req, sid):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    return Response.html(views.admin_edit_session(
+        who, s, registry.load_problems(), error=req.query.get("error")))
+
+
+@router.route("POST", "/admin/sessions/<sid>/edit")
+def edit_save(req, sid):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if not model.get_session(sid):
+        return Response.not_found()
+    f = req.form
+    try:
+        model.update_session(
+            sid,
+            candidate_name=f.get("candidate_name", "").strip(),
+            workspace_user=f.get("workspace_user", "").strip(),
+            access_code=f.get("access_code", "").strip() or None,
+            duration_minutes=int(f.get("duration_minutes") or 90),
+            llm_budget_usd=float(f.get("llm_budget_usd") or 5),
+            llm_models=req.getlist("llm_models") or None,
+            internet_access=f.get("internet_access", "1") == "1",
+            terms_text=(f.get("terms_text") or "").strip() or None,
+            problem_ids=req.getlist("problem_ids"),
+            actor=who,
+        )
+    except ValueError as exc:
+        return Response.redirect(f"/admin/sessions/{sid}/edit?error={_q(str(exc))}")
+    return Response.redirect(f"/admin/sessions/{sid}")
+
+
+@router.route("POST", "/admin/sessions/<sid>/delete")
+def delete(req, sid):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    try:
+        model.delete_session(sid, actor=who)
+    except ValueError as exc:
+        return Response.redirect(f"/admin/sessions/{sid}?notice={_q(str(exc))}")
+    return Response.redirect(f"/admin?notice={_q('Session deleted.')}")
+
+
 def _lifecycle(action):
     def handler(req, sid):
         who, redirect = _require(req)

@@ -148,6 +148,46 @@ def test_code_expires_after_grace():
     assert got is None and "expired" in reason
 
 
+def _edit_kwargs(**over):
+    base = dict(candidate_name="Alex Doe", workspace_user="candidate", access_code="ABCDEF",
+                duration_minutes=90, llm_budget_usd=5, llm_models=None, internet_access=True,
+                terms_text=None, problem_ids=[])
+    base.update(over)
+    return base
+
+
+def test_update_session_only_before_activation():
+    s = _new(access_code="ABCDEF")
+    updated = model.update_session(s["id"], **_edit_kwargs(candidate_name="Sam Roe",
+                                                           workspace_user="sam", duration_minutes=60))
+    assert updated["candidate_name"] == "Sam Roe"
+    assert updated["workspace_user"] == "sam"
+    assert updated["duration_minutes"] == 60
+    model.activate(s["id"])
+    with pytest.raises(ValueError):
+        model.update_session(s["id"], **_edit_kwargs())  # active -> not editable
+
+
+def test_update_session_code_clash_rejected():
+    a = _new(access_code="AAAAAA")
+    _new(access_code="BBBBBB")
+    with pytest.raises(ValueError):
+        model.update_session(a["id"], **_edit_kwargs(access_code="BBBBBB"))
+
+
+def test_delete_session():
+    s = _new()
+    model.delete_session(s["id"])
+    assert model.get_session(s["id"]) is None
+
+
+def test_delete_active_session_rejected():
+    s = _new()
+    model.activate(s["id"])
+    with pytest.raises(ValueError):
+        model.delete_session(s["id"])
+
+
 def test_workspace_authz_requires_active_and_terms():
     s = _new()
     assert not model.is_workspace_authorized(s["id"])   # created
