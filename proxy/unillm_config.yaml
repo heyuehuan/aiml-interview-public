@@ -1,0 +1,30 @@
+# unillm proxy config. Gemini-only allowlist — unillm serves *only* the models
+# listed here, so this file is the model gate.
+# Vertex project comes from the mounted service-account credential
+# (GOOGLE_APPLICATION_CREDENTIALS).
+#
+# location: global — Gemini 3.x models are served ONLY from the global endpoint
+# (aiplatform.googleapis.com), not regional hosts. unillm's vertex handler maps
+# location: global to the un-prefixed host.
+#
+# gemini-3.1-pro is the opt-in tier. Enable it only once the
+# project can reach it; the two flash models below are the working defaults.
+model_list:
+  - model_name: gemini-3.5-flash
+    unillm_params:
+      model: gemini-3.5-flash
+      project: your-gcp-project
+      location: global
+  - model_name: gemini-3.1-flash-lite
+    unillm_params:
+      model: gemini-3.1-flash-lite
+      project: your-gcp-project
+      location: global
+  - model_name: gemini-3.1-pro
+    unillm_params:
+      model: gemini-3.1-pro
+      project: your-gcp-project
+      location: global
+
+general_settings:
+  port: 8081
