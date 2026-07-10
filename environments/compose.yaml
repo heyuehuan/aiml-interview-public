@@ -45,12 +45,15 @@ services:
       UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:-sk-unillm-dev-change-me}
       UNILLM_INTERNAL_URL: ${UNILLM_INTERNAL_URL:-http://unillm:8081/v1}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:8081/v1}
+      # export/reset scripts (mounted at /srv/scripts below).
+      SCRIPTS_DIR: /srv/scripts
       PORTAL_SECRET: ${PORTAL_SECRET:-dev-insecure-secret-change-me}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     volumes:
       - ./portal:/app:ro
       - ../problems:/srv/problems:ro
+      - ../scripts:/srv/scripts:ro   # export/reset scripts (integrations.py runs these)
       - platform_data:/data
       - control:/control
       - problems_seed:/problems_seed
@@ -77,6 +80,7 @@ services:
     volumes:
       - ./portal:/app:ro
       - ../problems:/srv/problems:ro
+      - ../scripts:/srv/scripts:ro   # export/reset scripts (integrations.py runs these)
       - platform_data:/data
       - control:/control
       - problems_seed:/problems_seed
@@ -165,6 +169,26 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    networks: [interview]
+
+  # snapshot agent: commit data/workspace -> shadow.git every 60s
+  # while a session is active. The git dependency lives only here (portal image stays
+  # lean). The candidate workspace is mounted READ-ONLY; the agent writes only into
+  # data/sessions/<id>/shadow.git, which no candidate container can reach.
+  snapshot:
+    image: alpine/git:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/srv/scripts/snapshot_agent.sh"]
+    environment:
+      DATA_DIR: /data
+      WORKSPACE_DIR: /workspace
+      CONTROL_FILE: /control/active.json
+      SNAPSHOT_INTERVAL: "60"
+    volumes:
+      - platform_data:/data
+      - workspace:/workspace:ro
+      - control:/control:ro
+      - ../scripts:/srv/scripts:ro
     networks: [interview]
 
 volumes:
