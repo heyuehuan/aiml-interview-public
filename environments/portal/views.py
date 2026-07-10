@@ -104,11 +104,11 @@ def code_entry(error=None):
     body = f"""<div class="card">{err}
 <form method="post" action="/api/code">
 <label for="code">Access code</label>
-<input class="code" id="code" name="code" maxlength="6" autocomplete="off"
+<input type="text" class="code" id="code" name="code" maxlength="6" autocomplete="off"
        autocapitalize="characters" autofocus placeholder="ABCDEF">
 <button type="submit">Enter workspace</button>
 </form>
-<p class="muted" style="margin-top:1rem">Enter the 6-letter code from your interview invite.</p>
+<p class="muted" style="margin-top:1rem">Enter the 6-letter code.</p>
 </div>"""
     return page("Workspace", body)
 
