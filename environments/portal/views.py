@@ -52,8 +52,8 @@ input[type=text], input[type=password], input[type=number], select, textarea {
   width: 100%; padding: .6rem .7rem; border-radius: 8px;
   border: 1px solid #333844; background: #0f1115; color: #e7e9ee; font: inherit;
 }
-input.code { text-transform: uppercase; letter-spacing: .5em; text-align: center;
-  font-size: 1.6rem; padding: .8rem; }
+input.code { text-transform: uppercase; letter-spacing: .4em; text-indent: .4em;
+  text-align: center; font-size: 1.4rem; padding: .8rem; }
 textarea { min-height: 8rem; resize: vertical; }
 button, .btn {
   display: inline-block; margin-top: 1rem; padding: .6rem 1.1rem; border: 0;
@@ -95,7 +95,7 @@ def page(title, body, subtitle=None):
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title><style>{_CSS}</style></head>
 <body><header><h1>{esc(title)}</h1>{sub}</header><main>{body}</main>
-<footer>&copy; 2026 Technical Interview Platform — monitored &amp; recorded for evaluation</footer></body></html>"""
+<footer>&copy; 2026 Technical Interview Platform</footer></body></html>"""
 
 
 # --- candidate pages --------------------------------------------------------
@@ -110,7 +110,7 @@ def code_entry(error=None):
 </form>
 <p class="muted" style="margin-top:1rem">Enter the 6-letter code from your interview invite.</p>
 </div>"""
-    return page("Interview workspace", body, "Welcome — let's get you set up.")
+    return page("Workspace", body)
 
 
 def terms(session, error=None):
