@@ -1,7 +1,7 @@
-# the workspace stack reverse proxy. One proxy fronts everything; internal services
-# are never host-exposed. Candidate routes (/ide, /jupyter) are gated by an auth
-# subrequest to the portal's /api/authz (the portal provides it; the original portal-stub returns
-# 204 = allow until the portal lands lands). Local dev serves plain HTTP on :80; production adds TLS/443.
+# Reverse proxy. One proxy fronts everything; internal services are
+# never host-exposed. Candidate routes (/ide, /jupyter) are gated by an auth subrequest
+# to the portal's /api/authz (the portal enforces real session auth). /admin/* is the admin
+# panel. Local dev serves plain HTTP on :80; production adds TLS/443.
 {
 	admin off
 	auto_https off
@@ -13,9 +13,14 @@
 		respond "ok" 200
 	}
 
+	# Admin panel. Auth is enforced by the app (admin cookie).
+	handle /admin/* {
+		reverse_proxy admin:8001
+	}
+
 	# Portal / session API. Not session-gated — /api/authz lives here.
 	handle /api/* {
-		reverse_proxy portal-stub:8000
+		reverse_proxy portal:8000
 	}
 
 	# Bare -> trailing slash (named matcher so the target isn't read as a matcher).
@@ -27,7 +32,7 @@
 
 	# VS Code (code-server). Strip the /ide prefix; code-server serves relative assets.
 	handle_path /ide/* {
-		forward_auth portal-stub:8000 {
+		forward_auth portal:8000 {
 			uri /api/authz
 		}
 		reverse_proxy code-server:8443
@@ -35,14 +40,14 @@
 
 	# JupyterLab. base_url=/jupyter, so pass the prefix through (no strip).
 	handle /jupyter/* {
-		forward_auth portal-stub:8000 {
+		forward_auth portal:8000 {
 			uri /api/authz
 		}
 		reverse_proxy jupyterlab:8888
 	}
 
-	# Home page shell (the portal replaces this with the session-aware portal).
+	# Candidate portal (session-aware home / code entry / terms).
 	handle {
-		reverse_proxy portal-stub:8000
+		reverse_proxy portal:8000
 	}
 }
