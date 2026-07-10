@@ -131,8 +131,6 @@ details.code-ex > summary { cursor: pointer; color: #9aa0ab; font-size: .9rem; }
 .md blockquote { margin: .7rem 0; padding: .1rem .9rem; border-left: 3px solid #333844; color: #b3b9c4; }
 .md a { color: #6ea3ff; }
 .prob-head { justify-content: space-between; align-items: flex-start; gap: 1rem; }
-.locked { color: #9aa0ab; font-style: italic; }
-.qbadge { font-size: .78rem; }
 """
 
 
@@ -306,52 +304,77 @@ def home(session, remaining_minutes):
                 "Your workspace is ready. Pick a tool to get started.")
 
 
-def problems_page(session, items=None):
-    """Moderated problems page. Each item: {id, title, summary, released, html}. The
-    statement is rendered inline (server-side) and only up to the question the
-    interviewer has released; ``released == 0`` shows a locked placeholder. The copy
-    button ships data + starter only — never the written statement."""
-    items = items or [{"id": pid, "title": pid, "summary": "", "released": 0, "html": None}
-                      for pid in session["problem_ids"]]
-    if not items:
-        body = ('<div class="card wide"><p class="muted">No problems assigned yet — '
-                'check with your interviewer.</p></div>')
-        return page("Problems", body)
+# Light-mode overrides for the problems page (dark is the base in _CSS). Scoped to
+# :root[data-theme="light"], which the toggle stamps on <html> and persists.
+_THEME_STYLE = """<style>
+:root[data-theme="light"] body { background:#f6f7f9; color:#1a1d24; }
+:root[data-theme="light"] a, :root[data-theme="light"] .md a { color:#2563eb; }
+:root[data-theme="light"] header p { color:#667085; }
+:root[data-theme="light"] .card { background:#fff; border-color:#e3e6ea; }
+:root[data-theme="light"] .muted { color:#667085; }
+:root[data-theme="light"] th { color:#475467; }
+:root[data-theme="light"] button.secondary, :root[data-theme="light"] .btn.secondary {
+  background:#e9ecf1; color:#1a1d24; }
+:root[data-theme="light"] .md { color:#1a1d24; }
+:root[data-theme="light"] .md h2, :root[data-theme="light"] .md h3, :root[data-theme="light"] .md h4,
+:root[data-theme="light"] .md h5, :root[data-theme="light"] .md h6 { color:#0f1115; }
+:root[data-theme="light"] .md code { background:#eef1f4; border-color:#e3e6ea; color:#0b5f8a; }
+:root[data-theme="light"] .md pre.code { background:#f0f2f5; border-color:#e3e6ea; }
+:root[data-theme="light"] .md pre.code code { color:#1a1d24; }
+:root[data-theme="light"] .md th, :root[data-theme="light"] .md td { border-color:#e3e6ea; }
+:root[data-theme="light"] .md hr { border-top-color:#e3e6ea; }
+:root[data-theme="light"] .md blockquote { border-left-color:#d0d5dd; color:#475467; }
+:root[data-theme="light"] .pill { border-color:#d0d5dd; }
+:root[data-theme="light"] footer { color:#98a2b3; }
+</style>
+<script>(function(){try{if(localStorage.getItem('portal-theme')==='light')
+document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>"""
 
-    cards = ""
-    for p in items:
-        released = p.get("released", 0)
-        if released >= 1 and p.get("html"):
-            badge = f'<span class="pill state-active qbadge">Q1–Q{released} released</span>' if released > 1 \
-                else '<span class="pill state-active qbadge">Q1 released</span>'
-            copy_btn = (f'<button type="button" class="copy-btn secondary" data-pid="{esc(p["id"])}">'
-                        'Copy data to my workspace</button>')
-            statement = f'<div class="md" style="margin-top:1rem">{p["html"]}</div>'
-        else:
-            badge = '<span class="pill state-created qbadge">not released yet</span>'
-            copy_btn = ""
-            statement = ('<p class="locked" style="margin-top:1rem">Your interviewer hasn’t '
-                         'shared this problem yet. Use <strong>Refresh</strong> once they do.</p>')
-        cards += f"""<div class="card wide" style="margin-bottom:1rem">
+_THEME_SCRIPT = """<script>
+(function(){
+  var b=document.getElementById('theme-toggle');
+  function light(){ return document.documentElement.getAttribute('data-theme')==='light'; }
+  function upd(){ b.textContent = light() ? 'Dark mode' : 'Light mode'; }
+  upd();
+  b.addEventListener('click', function(){
+    if(light()){ document.documentElement.removeAttribute('data-theme');
+      try{ localStorage.setItem('portal-theme','dark'); }catch(e){} }
+    else{ document.documentElement.setAttribute('data-theme','light');
+      try{ localStorage.setItem('portal-theme','light'); }catch(e){} }
+    upd();
+  });
+})();
+</script>"""
+
+
+def problems_page(session, items=None):
+    """Moderated problems page. ``items`` are the released problems only (each
+    ``{id, title, summary, released, html}``) — a problem with nothing released is not
+    shown at all. Statements render inline; the copy button ships ``data/`` only."""
+    items = items or []
+    cards = "".join(
+        f"""<div class="card wide" style="margin-bottom:1rem">
   <div class="row prob-head">
     <div><h2 style="margin:.1rem 0 .3rem;font-size:1.05rem">{esc(p['title'])}</h2>
-      <p class="muted mono" style="margin:0">{esc(p['id'])}/ · {badge}</p></div>
-    {copy_btn}
+      <p class="muted mono" style="margin:0">{esc(p['id'])}/</p></div>
+    <button type="button" class="copy-btn secondary" data-pid="{esc(p['id'])}">Copy data to my workspace</button>
   </div>
-  {statement}
+  <div class="md" style="margin-top:1rem">{p['html']}</div>
 </div>"""
+        for p in items
+    ) or '<div class="card wide"><p class="muted">No problems yet.</p></div>'
 
-    body = f"""<div class="card wide" style="margin-bottom:1rem">
-  <p>Your interviewer releases each question when it's time. Read it here, then work in the
-     <a href="/ide/" target="_blank" rel="noopener">IDE</a> or
-     <a href="/jupyter/" target="_blank" rel="noopener">Jupyter</a>. Use
-     <strong>Copy data to my workspace</strong> to drop the dataset under
-     <span class="mono">~/workspace/&lt;problem&gt;/data/</span>.</p>
-  <div class="row"><a class="btn" href="/problems">↻ Refresh</a>
-    <button type="button" class="copy-btn secondary" data-pid="all">Copy all data to my workspace</button>
-    <span id="copy-status" class="muted"></span></div>
+    copy_all = ('<button type="button" class="copy-btn secondary" data-pid="all">Copy all data to my workspace</button>'
+                if items else "")
+    body = f"""{_THEME_STYLE}
+<div class="row" style="margin-bottom:1.2rem">
+  <a class="btn" href="/problems">↻ Refresh</a>
+  {copy_all}
+  <button type="button" class="btn secondary" id="theme-toggle">Light mode</button>
+  <span id="copy-status" class="muted"></span>
 </div>
 {cards}
+{_THEME_SCRIPT}
 <script>
 (function(){{
   var status=document.getElementById('copy-status');
