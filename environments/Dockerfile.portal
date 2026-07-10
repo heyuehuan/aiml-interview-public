@@ -1,0 +1,12 @@
+# Portal/admin image. Stock slim Python plus numpy/pandas so the packager
+# can run problem generators (e.g. ml-txn-anomaly-001) at session activation. The app
+# code is bind-mounted at /app by compose; this image only supplies the interpreter and
+# the generator dependencies.
+FROM python:3.12-slim-bookworm
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+RUN pip install --no-cache-dir "numpy>=1.26,<3" "pandas>=2.1,<3"
+
+WORKDIR /app

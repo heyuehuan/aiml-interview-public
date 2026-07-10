@@ -13,6 +13,7 @@ import os
 import db
 import integrations
 import model
+import registry
 import views
 from server import Response, Router, serve
 
@@ -126,7 +127,33 @@ def problems(req):
     s = _current(req)
     if not s or not s["terms_accepted_at"]:
         return Response.redirect("/")
-    return Response.html(views.problems_page(s))
+    return Response.html(views.problems_page(s, registry.problem_meta(s["problem_ids"])))
+
+
+@router.route("POST", "/api/problems/copy")
+def copy_problem(req):
+    """Candidate 'copy files to my workspace' button: copy one assigned problem (or
+    all) from the session seed into ~/workspace. Gated to the candidate's own active,
+    terms-accepted session and to problems actually assigned to it."""
+    s = _current(req)
+    if not s or not s["terms_accepted_at"]:
+        return Response.json({"ok": False, "message": "No active session."}, status=401)
+    data = req.json_body()
+    pid = (data.get("problem_id") or "").strip()
+    assigned = s["problem_ids"] or []
+    if pid and pid != "all" and pid not in assigned:
+        return Response.json({"ok": False, "message": "That problem isn't assigned to you."}, status=400)
+    targets = assigned if (pid in ("", "all")) else [pid]
+    if not targets:
+        return Response.json({"ok": False, "message": "No problems assigned yet."}, status=400)
+    copied = integrations.copy_problems_to_workspace(s["id"], targets)
+    model.record_event(s["id"], "candidate", "problem_copied", {"problems": copied})
+    if not copied:
+        return Response.json({"ok": False,
+                              "message": "Files aren't ready yet — ask your interviewer to activate the session."},
+                             status=409)
+    return Response.json({"ok": True, "copied": copied,
+                          "message": f"Copied {', '.join(copied)} into ~/workspace/."})
 
 
 @router.route("GET", "/logout")

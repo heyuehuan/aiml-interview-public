@@ -285,13 +285,54 @@ def home(session, remaining_minutes):
                 "Your workspace is ready. Pick a tool to get started.")
 
 
-def problems_page(session):
-    items = "".join(f"<li class='mono'>{esc(pid)}</li>" for pid in session["problem_ids"]) \
-        or "<li class='muted'>No problems assigned yet — check with your interviewer.</li>"
-    body = f"""<div class="card wide">
-<p>Your problem files are in the workspace at <span class="mono">~/workspace/</span>
-(open <span class="mono">PROBLEMS.md</span> in the IDE or Jupyter). Assigned:</p>
-<ul>{items}</ul></div>"""
+def problems_page(session, meta=None):
+    meta = meta or [{"id": pid, "title": pid, "summary": ""} for pid in session["problem_ids"]]
+    if not meta:
+        body = ('<div class="card wide"><p class="muted">No problems assigned yet — '
+                'check with your interviewer.</p></div>')
+        return page("Problems", body)
+
+    cards = "".join(
+        f"""<div class="card wide" style="margin-bottom:1rem">
+  <div class="row" style="justify-content:space-between;align-items:flex-start;gap:1rem">
+    <div><h2 style="margin:.1rem 0 .3rem;font-size:1.05rem">{esc(p['title'])}</h2>
+      <p class="muted mono" style="margin:0">{esc(p['id'])}/</p></div>
+    <button type="button" class="copy-btn" data-pid="{esc(p['id'])}">Copy to my workspace</button>
+  </div>
+  {f'<p class="kv" style="margin:.7rem 0 0">{esc(p["summary"])}</p>' if p['summary'] else ''}
+</div>"""
+        for p in meta
+    )
+    body = f"""<div class="card wide" style="margin-bottom:1rem">
+  <p>Copy a problem's files into your workspace, then open them in the
+     <a href="/ide/" target="_blank" rel="noopener">IDE</a> or
+     <a href="/jupyter/" target="_blank" rel="noopener">Jupyter</a> under
+     <span class="mono">~/workspace/&lt;problem&gt;/</span>. Each problem folder holds the
+     statement (<span class="mono">problem.md</span>), the data dictionary and dataset
+     (<span class="mono">data/</span>), and any starter code.</p>
+  <div class="row"><button type="button" class="copy-btn" data-pid="all">Copy all to my workspace</button>
+    <span id="copy-status" class="muted"></span></div>
+</div>
+{cards}
+<script>
+(function(){{
+  var status=document.getElementById('copy-status');
+  function say(t){{ status.textContent=t; }}
+  document.querySelectorAll('.copy-btn').forEach(function(btn){{
+    btn.addEventListener('click', function(){{
+      var pid=btn.getAttribute('data-pid'), label=btn.textContent;
+      btn.disabled=true; btn.textContent='Copying…'; say('');
+      fetch('/api/problems/copy', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{problem_id: pid}})}})
+        .then(function(r){{ return r.json(); }})
+        .then(function(d){{ say(d && d.message ? d.message : 'Done.');
+          btn.textContent = d && d.ok ? 'Copied ✓' : label;
+          if(!(d && d.ok)) btn.disabled=false; }})
+        .catch(function(e){{ say('Copy failed: '+e); btn.textContent=label; btn.disabled=false; }});
+    }});
+  }});
+}})();
+</script>"""
     return page("Problems", body)
 
 
@@ -343,8 +384,36 @@ def _llm_panel(llm_key, llm_test, models_info=None):
 </div>"""
 
 
+def _visibility_panel(all_problems):
+    """Admin Show/Hide control: whether each registry problem is offered in the
+    session-create form. Overrides persist server-side (registry.set_visibility)."""
+    if not all_problems:
+        return ""
+    rows = ""
+    for p in all_problems:
+        visible = p["visible"]
+        pill = ('<span class="pill state-active">visible</span>' if visible
+                else '<span class="pill state-reset">hidden</span>')
+        action = "0" if visible else "1"
+        label = "Hide" if visible else "Show"
+        cls = "danger" if visible else ""
+        rows += (
+            f'<tr><td>{esc(p["title"])}</td><td class="mono">{esc(p["id"])}</td>'
+            f'<td>{pill}</td><td>'
+            f'<form class="inline" method="post" action="/admin/problems/{esc(p["id"])}/visibility">'
+            f'<input type="hidden" name="visible" value="{action}">'
+            f'<button class="{cls} secondary" type="submit" style="margin-top:0">{label}</button>'
+            f'</form></td></tr>')
+    return f"""<div class="card wide" style="margin-bottom:1.5rem">
+  <h2 style="margin-top:0;font-size:1.1rem">Problems — visibility</h2>
+  <p class="muted" style="margin:.2rem 0 .8rem">Hidden problems are not offered when creating a session.</p>
+  <table><thead><tr><th>Title</th><th>ID</th><th>Status</th><th></th></tr></thead>
+  <tbody>{rows}</tbody></table>
+</div>"""
+
+
 def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test=None,
-                    models_info=None):
+                    models_info=None, all_problems=None):
     note = f'<div class="ok">{esc(notice)}</div>' if notice else ""
     rows = "".join(
         f"""<tr>
@@ -372,7 +441,8 @@ def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test
     {_session_form_fields(problems)}
     <button type="submit">Create session</button>
   </form>
-</div>"""
+</div>
+{_visibility_panel(all_problems)}"""
     return page("Admin", body)
 
 
@@ -515,6 +585,8 @@ def _actions_for(s, sid):
         out.append(btn("activate", "Activate (provision workspace)"))
         out.append(f'<a class="btn secondary" href="/admin/sessions/{sid}/edit">Edit</a>')
     if st == "active":
+        out.append(f'<form class="inline" method="post" action="/admin/sessions/{sid}/seed-workspace">'
+                   f'<button class="secondary" type="submit">Copy problem files to workspace</button></form>')
         out.append('<form class="inline" method="post" action="/admin/sessions/%s/extend">'
                    '<input type="number" name="minutes" value="15" min="5" style="width:5rem">'
                    '<button class="secondary" type="submit">Extend</button></form>' % sid)
