@@ -86,6 +86,14 @@ th { color: #9aa0ab; font-weight: 600; }
 .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
 form.inline { display: inline; }
 footer { color: #6b717c; font-size: .8rem; padding-bottom: 2rem; text-align: center; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
+.modal-overlay[hidden] { display: none; }
+.modal-card { background: #1a1d24; border: 1px solid #333844; border-radius: 12px;
+  padding: 1.4rem 1.5rem; max-width: 400px; width: 100%; }
+.modal-card p { margin: 0 0 1.2rem; }
+.modal-card .row { justify-content: flex-end; }
+.modal-card button { margin-top: 0; }
 """
 
 
@@ -187,13 +195,6 @@ def admin_dashboard(admin, sessions, problems, notice=None):
 <td class="muted">{esc(s['ends_at'] or '—')}</td></tr>"""
         for s in sessions
     ) or '<tr><td colspan="5" class="muted">No sessions yet.</td></tr>'
-    opts = "".join(
-        f'<label class="row" style="cursor:pointer"><input type="checkbox" name="problem_ids" '
-        f'value="{esc(p["id"])}" style="width:auto"> '
-        f'<span class="mono">{esc(p["id"])}</span> <span class="muted">— {esc(p["title"])} '
-        f'({esc(p["status"])})</span></label>'
-        for p in problems
-    ) or '<p class="muted">No problems in the registry.</p>'
     body = f"""{note}
 <div class="card wide" style="margin-bottom:1.5rem">
   <div class="row" style="justify-content:space-between">
@@ -207,38 +208,110 @@ def admin_dashboard(admin, sessions, problems, notice=None):
 <div class="card wide">
   <h2 style="margin-top:0;font-size:1.1rem">New session</h2>
   <form method="post" action="/admin/sessions">
-    <div class="grid">
-      <div><label for="cn">Candidate display name</label>
-        <input type="text" id="cn" name="candidate_name" placeholder="Alex Doe" required></div>
-      <div><label for="wu">Workspace username (OS login)</label>
-        <input type="text" id="wu" name="workspace_user" placeholder="candidate" required
-               pattern="[a-z_][a-z0-9_-]*" title="lowercase, starts with a letter/underscore"></div>
-      <div><label for="ac">Access code (blank = auto)</label>
-        <input type="text" id="ac" name="access_code" maxlength="6" placeholder="auto"></div>
-      <div><label for="dm">Duration (minutes)</label>
-        <input type="number" id="dm" name="duration_minutes" value="90" min="5" max="600"></div>
-      <div><label for="bg">LLM budget (USD)</label>
-        <input type="number" id="bg" name="llm_budget_usd" value="5" min="0" step="0.5"></div>
-      <div><label for="net">Internet access</label>
-        <select id="net" name="internet_access"><option value="1">Full (default)</option>
-        <option value="0">Restricted</option></select></div>
-    </div>
-    <label>Models</label>
-    <div class="row">
-      <label class="row" style="cursor:pointer"><input type="checkbox" name="llm_models"
-        value="gemini-3.5-flash" checked style="width:auto"> gemini-3.5-flash</label>
-      <label class="row" style="cursor:pointer"><input type="checkbox" name="llm_models"
-        value="gemini-3.1-flash-lite" checked style="width:auto"> gemini-3.1-flash-lite</label>
-      <label class="row" style="cursor:pointer"><input type="checkbox" name="llm_models"
-        value="gemini-3.1-pro" style="width:auto"> gemini-3.1-pro (opt-in)</label>
-    </div>
-    <label style="margin-top:1rem">Problems</label>{opts}
-    <label for="tt" style="margin-top:1rem">Terms (blank = standard default)</label>
-    <textarea id="tt" name="terms_text" placeholder="Leave blank to use the standard terms."></textarea>
+    {_session_form_fields(problems)}
     <button type="submit">Create session</button>
   </form>
 </div>"""
     return page("Admin", body)
+
+
+def _session_form_fields(problems, s=None):
+    """Shared inputs for the create + edit forms (pre-filled from `s` when editing)."""
+    g = (lambda k: esc(s[k]) if s else "")
+    dur = s["duration_minutes"] if s else 90
+    budget = f'{s["llm_budget_usd"]:g}' if s else "5"
+    models = s["llm_models"] if s else ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
+    internet = s["internet_access"] if s else True
+    terms = esc(s["terms_text"]) if (s and s["terms_text"]) else ""
+    sel = s["problem_ids"] if s else []
+    code_attr = f' value="{esc(s["access_code"])}"' if s else ' placeholder="auto"'
+    ck = lambda m: " checked" if m in models else ""
+    opts = "".join(
+        f'<label class="row" style="cursor:pointer"><input type="checkbox" name="problem_ids" '
+        f'value="{esc(p["id"])}"{" checked" if p["id"] in sel else ""} style="width:auto"> '
+        f'<span class="mono">{esc(p["id"])}</span> <span class="muted">— {esc(p["title"])} '
+        f'({esc(p["status"])})</span></label>'
+        for p in problems
+    ) or '<p class="muted">No problems in the registry.</p>'
+    return f"""<div class="grid">
+      <div><label for="cn">Candidate display name</label>
+        <input type="text" id="cn" name="candidate_name" placeholder="Alex Doe" required value="{g('candidate_name')}"></div>
+      <div><label for="wu">Workspace username (OS login)</label>
+        <input type="text" id="wu" name="workspace_user" placeholder="candidate" required
+               pattern="[a-z_][a-z0-9_-]*" title="lowercase, starts with a letter/underscore" value="{g('workspace_user')}"></div>
+      <div><label for="ac">Access code{'' if s else ' (blank = auto)'}</label>
+        <input type="text" id="ac" name="access_code" maxlength="6"{code_attr}></div>
+      <div><label for="dm">Duration (minutes)</label>
+        <input type="number" id="dm" name="duration_minutes" value="{dur}" min="5" max="600"></div>
+      <div><label for="bg">LLM budget (USD)</label>
+        <input type="number" id="bg" name="llm_budget_usd" value="{budget}" min="0" step="0.5"></div>
+      <div><label for="net">Internet access</label>
+        <select id="net" name="internet_access">
+          <option value="1"{' selected' if internet else ''}>Full (default)</option>
+          <option value="0"{' selected' if not internet else ''}>Restricted</option></select></div>
+    </div>
+    <label>Models</label>
+    <div class="row">
+      <label class="row" style="cursor:pointer"><input type="checkbox" name="llm_models"
+        value="gemini-3.5-flash"{ck('gemini-3.5-flash')} style="width:auto"> gemini-3.5-flash</label>
+      <label class="row" style="cursor:pointer"><input type="checkbox" name="llm_models"
+        value="gemini-3.1-flash-lite"{ck('gemini-3.1-flash-lite')} style="width:auto"> gemini-3.1-flash-lite</label>
+      <label class="row" style="cursor:pointer"><input type="checkbox" name="llm_models"
+        value="gemini-3.1-pro"{ck('gemini-3.1-pro')} style="width:auto"> gemini-3.1-pro (opt-in)</label>
+    </div>
+    <label style="margin-top:1rem">Problems</label>{opts}
+    <label for="tt" style="margin-top:1rem">Terms (blank = standard default)</label>
+    <textarea id="tt" name="terms_text" placeholder="Leave blank to use the standard terms.">{terms}</textarea>"""
+
+
+def admin_edit_session(admin, s, problems, error=None):
+    err = f'<div class="err">{esc(error)}</div>' if error else ""
+    sid = esc(s["id"])
+    body = f"""{err}
+<div class="row" style="margin-bottom:1rem">
+  <a class="btn secondary" href="/admin/sessions/{sid}">← Cancel</a></div>
+<div class="card wide">
+  <h2 style="margin-top:0;font-size:1.1rem">Edit session</h2>
+  <form method="post" action="/admin/sessions/{sid}/edit">
+    {_session_form_fields(problems, s)}
+    <button type="submit">Save changes</button>
+  </form>
+</div>"""
+    return page(f"Edit — {s['candidate_name']}", body)
+
+
+def _confirm_modal():
+    """A styled confirmation overlay that replaces native confirm() for destructive
+    actions. Buttons with class `js-confirm` + `data-confirm` open it and, on Confirm,
+    submit their enclosing form."""
+    return """
+<div id="modal" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <p id="modal-msg"></p>
+    <div class="row">
+      <button class="secondary" id="modal-cancel" type="button">Cancel</button>
+      <button class="danger" id="modal-ok" type="button">Confirm</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var overlay=document.getElementById('modal'), msg=document.getElementById('modal-msg'),
+      ok=document.getElementById('modal-ok'), cancel=document.getElementById('modal-cancel'), pending=null;
+  function hide(){overlay.hidden=true; pending=null;}
+  document.querySelectorAll('.js-confirm').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault(); pending=btn.closest('form');
+      msg.textContent=btn.getAttribute('data-confirm')||'Are you sure?';
+      overlay.hidden=false;
+    });
+  });
+  ok.addEventListener('click', function(){ if(pending) pending.submit(); });
+  cancel.addEventListener('click', hide);
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) hide(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') hide(); });
+})();
+</script>"""
 
 
 def admin_session_detail(admin, s, notice=None):
@@ -263,28 +336,37 @@ def admin_session_detail(admin, s, notice=None):
   <a class="btn secondary" href="/admin">← All sessions</a>
   {_state_pill(s['state'])}</div>
 <div class="card wide"><table>{rows}</table></div>
-<div class="card wide" style="margin-top:1.2rem"><div class="row">{actions}</div></div>"""
+<div class="card wide" style="margin-top:1.2rem"><div class="row">{actions}</div></div>
+{_confirm_modal()}"""
     return page(f"Session — {s['candidate_name']}", body)
 
 
 def _actions_for(s, sid):
     def btn(action, label, cls="", confirm=None):
-        c = f' onsubmit="return confirm(\'{confirm}\')"' if confirm else ""
-        return (f'<form class="inline" method="post" action="/admin/sessions/{sid}/{action}"{c}>'
-                f'<button class="{cls}" type="submit">{label}</button></form>')
+        # confirm -> routed through the overlay modal (js-confirm), not native confirm().
+        cls_attr = f"{cls} js-confirm".strip() if confirm else cls
+        extra = f' data-confirm="{esc(confirm)}"' if confirm else ""
+        return (f'<form class="inline" method="post" action="/admin/sessions/{sid}/{action}">'
+                f'<button class="{cls_attr}"{extra} type="submit">{label}</button></form>')
     out = []
     st = s["state"]
     if st == "created":
         out.append(btn("activate", "Activate (provision workspace)"))
+        out.append(f'<a class="btn secondary" href="/admin/sessions/{sid}/edit">Edit</a>')
     if st == "active":
         out.append('<form class="inline" method="post" action="/admin/sessions/%s/extend">'
                    '<input type="number" name="minutes" value="15" min="5" style="width:5rem">'
                    '<button class="secondary" type="submit">Extend</button></form>' % sid)
-        out.append(btn("close", "Close session", "danger", "Close this session?"))
+        out.append(btn("close", "Close session", "danger",
+                       "Close this session? The candidate immediately loses access."))
     if st == "closed":
         out.append(btn("export", "Export bundle"))
     if st in ("closed", "exported"):
         out.append(f'<a class="btn secondary" href="/admin/sessions/{sid}/download">Download export</a>')
     if st == "exported":
-        out.append(btn("reset", "Reset workspace", "danger", "Wipe the workspace for the next candidate?"))
+        out.append(btn("reset", "Reset workspace", "danger",
+                       "Wipe the workspace for the next candidate?"))
+    if st != "active":
+        out.append(btn("delete", "Delete", "danger",
+                       "Permanently delete this session and its records? This cannot be undone."))
     return "".join(out) or '<span class="muted">No actions in this state.</span>'
