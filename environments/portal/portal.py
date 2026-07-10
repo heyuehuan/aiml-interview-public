@@ -127,7 +127,12 @@ def problems(req):
     s = _current(req)
     if not s or not s["terms_accepted_at"]:
         return Response.redirect("/")
-    return Response.html(views.problems_page(s, registry.problem_meta(s["problem_ids"])))
+    released = model.all_released(s["id"])
+    items = []
+    for m in registry.problem_meta(s["problem_ids"]):
+        r = released.get(m["id"], 0)
+        items.append({**m, "released": r, "html": registry.render_released(m["id"], r)})
+    return Response.html(views.problems_page(s, items))
 
 
 @router.route("POST", "/api/problems/copy")
@@ -146,14 +151,17 @@ def copy_problem(req):
     targets = assigned if (pid in ("", "all")) else [pid]
     if not targets:
         return Response.json({"ok": False, "message": "No problems assigned yet."}, status=400)
-    copied = integrations.copy_problems_to_workspace(s["id"], targets)
-    model.record_event(s["id"], "candidate", "problem_copied", {"problems": copied})
+    # Candidate copy is the dataset only (data/) — never the written statement or
+    # starter. The moderated statement is read in the browser; the interviewer pushes
+    # problem.md + starter via the admin full-copy button.
+    copied = integrations.copy_problems_to_workspace(s["id"], targets, data_only=True)
+    model.record_event(s["id"], "candidate", "problem_data_copied", {"problems": copied})
     if not copied:
         return Response.json({"ok": False,
                               "message": "Files aren't ready yet — ask your interviewer to activate the session."},
                              status=409)
     return Response.json({"ok": True, "copied": copied,
-                          "message": f"Copied {', '.join(copied)} into ~/workspace/."})
+                          "message": f"Copied data for {', '.join(copied)} into ~/workspace/."})
 
 
 @router.route("GET", "/logout")

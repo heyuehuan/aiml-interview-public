@@ -129,38 +129,51 @@ def _world_readable(path):
             os.chmod(fp, os.stat(fp).st_mode | stat.S_IRGRP | stat.S_IROTH)
 
 
-def copy_problem_to_workspace(session_id, problem_id):
-    """Copy one seeded problem (candidate-facing content only — the seed already
-    enforces the visibility contract) into the candidate workspace at
-    ``~/workspace/<problem_id>/``. Returns the destination or None if not seeded."""
+def copy_problem_to_workspace(session_id, problem_id, data_only=False):
+    """Copy one seeded problem into the candidate workspace at
+    ``~/workspace/<problem_id>/`` (the seed already enforces the visibility contract).
+
+    ``data_only=True`` (the candidate button) ships ONLY the problem's ``data/`` dir —
+    dataset + data dictionary — and nothing else: not the written ``problem.md`` (they
+    read the moderated statement in the browser) and not ``starter/`` (the interviewer
+    releases that via the full push). ``data_only=False`` (the admin button) ships the
+    whole problem. Returns the destination, or None if there's nothing to copy."""
     src = os.path.join(_session_seed_dir(session_id), problem_id)
     if not os.path.isdir(src):
         _log(f"seed for {problem_id} not found ({src}); did activation package it?")
         return None
     dst = os.path.join(WORKSPACE_DIR, problem_id)
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
-    shutil.copytree(src, dst, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+    if data_only:
+        data_src = os.path.join(src, "data")
+        if not os.path.isdir(data_src):
+            _log(f"{problem_id}: no data/ dir to copy (data_only)")
+            return None
+        shutil.copytree(data_src, os.path.join(dst, "data"), dirs_exist_ok=True, ignore=ignore)
+    else:
+        shutil.copytree(src, dst, dirs_exist_ok=True, ignore=ignore)
     _world_readable(dst)
     return dst
 
 
-def copy_problems_to_workspace(session_id, problem_ids):
-    """Copy every assigned problem plus the PROBLEMS.md index into the workspace.
-    Returns the list of problem_ids actually copied."""
+def copy_problems_to_workspace(session_id, problem_ids, data_only=False):
+    """Copy every assigned problem into the workspace. ``data_only=True`` (candidate)
+    ships each problem's ``data/`` only; ``data_only=False`` (admin) ships the full
+    problem plus the ``PROBLEMS.md`` index. Returns the ids actually copied."""
     copied = []
     for pid in problem_ids:
-        if copy_problem_to_workspace(session_id, pid):
+        if copy_problem_to_workspace(session_id, pid, data_only=data_only):
             copied.append(pid)
-    index = os.path.join(_session_seed_dir(session_id), "PROBLEMS.md")
-    if os.path.isfile(index):
-        os.makedirs(WORKSPACE_DIR, exist_ok=True)
-        shutil.copy2(index, os.path.join(WORKSPACE_DIR, "PROBLEMS.md"))
-        try:
-            os.chmod(os.path.join(WORKSPACE_DIR, "PROBLEMS.md"),
-                     0o644)
-        except OSError:
-            pass
+    if not data_only:
+        index = os.path.join(_session_seed_dir(session_id), "PROBLEMS.md")
+        if os.path.isfile(index):
+            os.makedirs(WORKSPACE_DIR, exist_ok=True)
+            shutil.copy2(index, os.path.join(WORKSPACE_DIR, "PROBLEMS.md"))
+            try:
+                os.chmod(os.path.join(WORKSPACE_DIR, "PROBLEMS.md"), 0o644)
+            except OSError:
+                pass
     return copied
 
 
