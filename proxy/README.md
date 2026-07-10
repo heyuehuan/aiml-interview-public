@@ -28,7 +28,30 @@ Candidates demonstrate LLM-application skills against the same API surface they'
 on the job, while spend stays bounded, models stay controlled, and usage is auditable
 per candidate.
 
-## Open items
+## Implementation
 
-- unillm specifics (deployment form, key/virtual-key model, config format) — pending
-  details from the owner; this README stays abstract until then.
+**unillm** (vendored under `proxy/unillm/`, from `github.com/heyuehuan/unillm`) — a minimal
+OpenAI-compatible FastAPI proxy for Vertex AI Gemini. Runs as the `unillm` compose service.
+
+- **Endpoint:** published on host `:8081` (candidates call `http://localhost:8081/v1`,
+  prod `domain:8081`). OpenAI-compatible: `/v1/chat/completions`, `/v1/completions`,
+  `/v1/models`, `/health`.
+- **Models (`unillm_config.yaml`):** Gemini only, allowlisted by config — `gemini-3.5-flash`,
+  `gemini-3.1-flash-lite` (defaults), `gemini-3.1-pro` (opt-in). All use
+  `location: global` (Gemini 3.x is global-endpoint only).
+- **Auth:** single shared `UNILLM_MASTER_KEY` (no per-session
+  keys). Injected into every workspace as `OPENAI_API_KEY`/`LLM_API_KEY`; shown in admin.
+- **Credentials:** Vertex service-account JSON mounted at `GOOGLE_APPLICATION_CREDENTIALS`
+  in the unillm container only — gitignored, never candidate-visible.
+  endpoint host; KMS handler import made optional (avoids the heavy `vertexai` SDK).
+
+### Run / test locally
+
+```bash
+cp environments/.env.example environments/.env   # set UNILLM_MASTER_KEY
+# place the Vertex SA JSON at environments/secrets/gcp-sa.json
+docker compose -f environments/compose.yaml up -d unillm
+curl -H "Authorization: Bearer $UNILLM_MASTER_KEY" http://localhost:8081/v1/models
+```
+
+Or use the admin dashboard's **Test Gemini** button.
