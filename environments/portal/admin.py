@@ -36,14 +36,30 @@ def healthz(req):
     return Response.text("ok")
 
 
+UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me")
+
+
+def _dashboard(who, notice=None, llm_test=None):
+    return Response.html(views.admin_dashboard(
+        who, model.list_sessions(), registry.load_problems(),
+        notice=notice, llm_key=UNILLM_MASTER_KEY, llm_test=llm_test))
+
+
 @router.route("GET", "/admin")
 def dashboard(req):
     who = _admin(req)
     if not who:
         return Response.html(views.admin_login())
-    return Response.html(views.admin_dashboard(
-        who, model.list_sessions(), registry.load_problems(),
-        notice=req.query.get("notice")))
+    return _dashboard(who, notice=req.query.get("notice"))
+
+
+@router.route("POST", "/admin/llm/test")
+def llm_test(req):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    result = integrations.gemini_healthcheck()
+    return _dashboard(who, llm_test=result)
 
 
 @router.route("POST", "/admin/login")
