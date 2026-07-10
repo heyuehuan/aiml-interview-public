@@ -131,6 +131,8 @@ def problems(req):
     items = []
     for m in registry.problem_meta(s["problem_ids"]):
         r = released.get(m["id"], 0)
+        if r < 1:
+            continue  # not released yet — don't show the problem at all
         items.append({**m, "released": r, "html": registry.render_released(m["id"], r)})
     return Response.html(views.problems_page(s, items))
 
@@ -148,9 +150,12 @@ def copy_problem(req):
     assigned = s["problem_ids"] or []
     if pid and pid != "all" and pid not in assigned:
         return Response.json({"ok": False, "message": "That problem isn't assigned to you."}, status=400)
-    targets = assigned if (pid in ("", "all")) else [pid]
+    # Only released problems are copyable — an unreleased problem isn't shown at all.
+    released = model.all_released(s["id"])
+    live = [p for p in assigned if released.get(p, 0) >= 1]
+    targets = live if (pid in ("", "all")) else [pid] if released.get(pid, 0) >= 1 else []
     if not targets:
-        return Response.json({"ok": False, "message": "No problems assigned yet."}, status=400)
+        return Response.json({"ok": False, "message": "No problems available yet."}, status=400)
     # Candidate copy is the dataset only (data/) — never the written statement or
     # starter. The moderated statement is read in the browser; the interviewer pushes
     # problem.md + starter via the admin full-copy button.
