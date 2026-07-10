@@ -14,7 +14,9 @@
 	}
 
 	# Admin panel. Auth is enforced by the app (admin cookie).
-	handle /admin/* {
+	# Match both the bare /admin and everything under it.
+	@admin path /admin /admin/*
+	handle @admin {
 		reverse_proxy admin:8001
 	}
 
