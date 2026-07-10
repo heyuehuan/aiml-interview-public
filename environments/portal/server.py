@@ -6,6 +6,7 @@ HTML forms. Shared by portal.py (candidate, :8000) and admin.py (admin, :8001).
 """
 from __future__ import annotations
 
+import json as _json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
@@ -36,6 +37,13 @@ class Request:
 
     def getlist(self, name):
         return list(self._parse_form().get(name, []))
+
+    def json_body(self):
+        """Parse the request body as JSON; {} on empty/invalid (callers validate)."""
+        try:
+            return _json.loads(self.body.decode("utf-8")) if self.body else {}
+        except (ValueError, UnicodeDecodeError):
+            return {}
 
     @property
     def cookies(self):
@@ -74,6 +82,10 @@ class Response:
     @classmethod
     def text(cls, body, status=200):
         return cls(status, body, "text/plain; charset=utf-8")
+
+    @classmethod
+    def json(cls, obj, status=200):
+        return cls(status, _json.dumps(obj), "application/json; charset=utf-8")
 
     @classmethod
     def redirect(cls, location, status=303):

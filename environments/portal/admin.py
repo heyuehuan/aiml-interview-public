@@ -42,7 +42,8 @@ UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me
 def _dashboard(who, notice=None, llm_test=None):
     return Response.html(views.admin_dashboard(
         who, model.list_sessions(), registry.load_problems(),
-        notice=notice, llm_key=UNILLM_MASTER_KEY, llm_test=llm_test))
+        notice=notice, llm_key=UNILLM_MASTER_KEY, llm_test=llm_test,
+        models_info=integrations.list_models()))
 
 
 @router.route("GET", "/admin")
