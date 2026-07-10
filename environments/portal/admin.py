@@ -43,7 +43,19 @@ def _dashboard(who, notice=None, llm_test=None):
     return Response.html(views.admin_dashboard(
         who, model.list_sessions(), registry.load_problems(),
         notice=notice, llm_key=UNILLM_MASTER_KEY, llm_test=llm_test,
-        models_info=integrations.list_models()))
+        models_info=integrations.list_models(),
+        all_problems=registry.all_problems()))
+
+
+@router.route("POST", "/admin/problems/<pid>/visibility")
+def problem_visibility(req, pid):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    visible = req.form.get("visible") == "1"
+    registry.set_visibility(pid, visible)
+    return Response.redirect(
+        f"/admin?notice={_q((pid + ' is now ' + ('visible' if visible else 'hidden')))}")
 
 
 @router.route("GET", "/admin")
@@ -184,6 +196,16 @@ def _activate(req, sid, who):
     integrations.on_activate(s)
 
 
+def _seed_workspace(req, sid, who):
+    s = model.get_session(sid)
+    if not s or s["state"] != "active":
+        raise ValueError("workspace is only provisioned while the session is active")
+    copied = integrations.copy_problems_to_workspace(sid, s["problem_ids"])
+    model.record_event(sid, who, "admin_pushed_problems", {"problems": copied})
+    if not copied:
+        raise ValueError("no seeded problems to push (re-activate to package them)")
+
+
 def _extend(req, sid, who):
     model.extend(sid, int(req.form.get("minutes") or 15), actor=who)
 
@@ -206,6 +228,7 @@ def _reset(req, sid, who):
     model.mark_reset(sid, actor=who)
 
 
+router.add("POST", "/admin/sessions/<sid>/seed-workspace", _lifecycle(_seed_workspace))
 router.add("POST", "/admin/sessions/<sid>/activate", _lifecycle(_activate))
 router.add("POST", "/admin/sessions/<sid>/extend", _lifecycle(_extend))
 router.add("POST", "/admin/sessions/<sid>/close", _lifecycle(_close))

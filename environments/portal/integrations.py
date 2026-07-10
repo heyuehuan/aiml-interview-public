@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import stat
 import subprocess
 import tempfile
 import urllib.error
@@ -18,6 +20,9 @@ import urllib.request
 import model
 
 CONTROL_FILE = os.environ.get("CONTROL_FILE", "/control/active.json")
+# The candidate volume, mounted into the portal/admin containers so the "copy to
+# workspace" button (candidate + admin) can drop seeded problem files in.
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "/workspace")
 # unillm: one shared master key, not per-session keys.
 UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8081/v1")
@@ -107,6 +112,56 @@ def package_problems(session):
         _log(f"packaged problems for {session['id']}")
     except (subprocess.SubprocessError, OSError) as exc:
         _log(f"packager unavailable ({exc}); workspace will start without seeded problems")
+
+
+# --- copy seeded problems into the candidate workspace ----------------------
+def _session_seed_dir(session_id):
+    return os.path.join(PROBLEMS_SEED_DIR, session_id)
+
+
+def _world_readable(path):
+    """Portal runs as root; the candidate is a non-root user. Make copied problem
+    files readable (and dirs traversable) by everyone so the candidate can open them."""
+    for root, dirs, files in os.walk(path):
+        os.chmod(root, os.stat(root).st_mode | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+        for f in files:
+            fp = os.path.join(root, f)
+            os.chmod(fp, os.stat(fp).st_mode | stat.S_IRGRP | stat.S_IROTH)
+
+
+def copy_problem_to_workspace(session_id, problem_id):
+    """Copy one seeded problem (candidate-facing content only — the seed already
+    enforces the visibility contract) into the candidate workspace at
+    ``~/workspace/<problem_id>/``. Returns the destination or None if not seeded."""
+    src = os.path.join(_session_seed_dir(session_id), problem_id)
+    if not os.path.isdir(src):
+        _log(f"seed for {problem_id} not found ({src}); did activation package it?")
+        return None
+    dst = os.path.join(WORKSPACE_DIR, problem_id)
+    os.makedirs(WORKSPACE_DIR, exist_ok=True)
+    shutil.copytree(src, dst, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    _world_readable(dst)
+    return dst
+
+
+def copy_problems_to_workspace(session_id, problem_ids):
+    """Copy every assigned problem plus the PROBLEMS.md index into the workspace.
+    Returns the list of problem_ids actually copied."""
+    copied = []
+    for pid in problem_ids:
+        if copy_problem_to_workspace(session_id, pid):
+            copied.append(pid)
+    index = os.path.join(_session_seed_dir(session_id), "PROBLEMS.md")
+    if os.path.isfile(index):
+        os.makedirs(WORKSPACE_DIR, exist_ok=True)
+        shutil.copy2(index, os.path.join(WORKSPACE_DIR, "PROBLEMS.md"))
+        try:
+            os.chmod(os.path.join(WORKSPACE_DIR, "PROBLEMS.md"),
+                     0o644)
+        except OSError:
+            pass
+    return copied
 
 
 # --- export / reset ----------------------------------------------------

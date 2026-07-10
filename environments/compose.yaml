@@ -23,7 +23,10 @@ services:
 
   # the portal candidate portal: access code -> terms -> home, plus /api/authz.
   portal:
-    image: python:3.12-slim-bookworm
+    build:
+      context: .
+      dockerfile: Dockerfile.portal
+    image: interview-platform/portal:dev
     restart: unless-stopped
     command: ["python", "/app/portal.py"]
     environment: &portal_env
@@ -31,6 +34,7 @@ services:
       PLATFORM_DB: /data/platform.db
       DATA_DIR: /data
       CONTROL_FILE: /control/active.json
+      WORKSPACE_DIR: /workspace
       PROBLEMS_SEED_DIR: /problems_seed
       PROBLEMS_REGISTRY: /srv/problems/registry.yaml
       PACKAGER_CWD: /srv
@@ -49,6 +53,8 @@ services:
       - platform_data:/data
       - control:/control
       - problems_seed:/problems_seed
+      # RW so the candidate "copy to workspace" button can drop seeded problem files in.
+      - workspace:/workspace
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
       interval: 10s
@@ -58,7 +64,10 @@ services:
 
   # the portal admin panel (/admin/* -> :8001). Same code + DB as the portal.
   admin:
-    image: python:3.12-slim-bookworm
+    build:
+      context: .
+      dockerfile: Dockerfile.portal
+    image: interview-platform/portal:dev
     restart: unless-stopped
     command: ["python", "/app/admin.py"]
     environment:
@@ -70,6 +79,7 @@ services:
       - platform_data:/data
       - control:/control
       - problems_seed:/problems_seed
+      - workspace:/workspace
     depends_on:
       portal:
         condition: service_healthy
