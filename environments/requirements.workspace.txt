@@ -1,0 +1,27 @@
+# workspace image — trimmed tier-1 stack.
+# Deliberately omits torch / tensorflow / spaCy / nltk / google-adk to keep the MVP
+# build fast. Add them post-MVP once build time is no longer the constraint.
+# Unpinned for the sprint; requirements.lock (uv pip compile) is a post-MVP follow-up.
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+seaborn
+statsmodels
+xgboost
+lightgbm
+pyarrow
+duckdb
+jupyterlab
+ipykernel
+ipywidgets
+openai
+anthropic
+httpx
+requests
+pydantic
+python-dotenv
+tqdm
+pytest
+ruff

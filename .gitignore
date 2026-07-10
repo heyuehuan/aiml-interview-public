@@ -7,6 +7,11 @@ __pycache__/
 .venv/
 .ipynb_checkpoints/
 
+# secrets / host-local config — never committed (CLAUDE.md hard rule)
+.env
+**/.env
+!**/.env.example
+
 # tooling
 .DS_Store
 .idea/
