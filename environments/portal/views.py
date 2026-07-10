@@ -104,6 +104,14 @@ pre.code { background: #0b0d12; border: 1px solid #262a33; border-radius: 8px;
 .codelabel { margin: 1rem 0 0; font-size: .82rem; color: #9aa0ab; font-weight: 600;
   text-transform: uppercase; letter-spacing: .04em; }
 .kv { font-size: .9rem; color: #c4c9d2; } .kv .mono { color: #9fe0b8; }
+select.pg { width: auto; min-width: 11rem; }
+#pg-prompt { min-height: 4.5rem; margin-top: .6rem; }
+#pg-out { white-space: pre-wrap; margin-top: .8rem; }
+#pg-out[hidden] { display: none; }
+button.pg-send { margin-top: 0; }
+button.pg-send:disabled { opacity: .6; cursor: default; }
+details.code-ex { margin-top: 1.2rem; }
+details.code-ex > summary { cursor: pointer; color: #9aa0ab; font-size: .9rem; }
 """
 
 
@@ -212,16 +220,52 @@ def _gemini_block(session):
         '  -H "Content-Type: application/json" \\\n'
         f"""  -d '{{"model": "{default_model}", "messages": [{{"role": "user", "content": "Hello"}}]}}'"""
     )
+    model_opts = "".join(
+        f'<option value="{esc(m)}"{" selected" if m == default_model else ""}>{esc(m)}</option>'
+        for m in models
+    )
     return f"""<div class="card wide" style="margin-top:1.5rem">
   <div class="brandhead">{_SVG_GEMINI}<span>Gemini</span></div>
   <p class="kv">Call Gemini through the workspace LLM proxy at
     <span class="mono">http://localhost:8081/v1</span> (OpenAI-compatible). Your key is
     already in your environment as <span class="mono">$OPENAI_API_KEY</span>
     (alias <span class="mono">$LLM_API_KEY</span>). Available models: {model_pills}</p>
-  <p class="codelabel">Python — OpenAI SDK</p>
-  <pre class="code">{esc(py)}</pre>
-  <p class="codelabel">HTTP — curl</p>
-  <pre class="code">{esc(curl)}</pre>
+
+  <p class="codelabel">Playground — try it now</p>
+  <div class="row" style="align-items:flex-end">
+    <div><label for="pg-model" style="margin-top:.4rem">Model</label>
+      <select id="pg-model" class="pg">{model_opts}</select></div>
+    <button type="button" id="pg-send" class="pg-send">Send</button>
+  </div>
+  <textarea id="pg-prompt" placeholder="Ask Gemini anything…">Explain gradient boosting in one sentence.</textarea>
+  <pre class="code" id="pg-out" hidden></pre>
+
+  <details class="code-ex">
+    <summary>Or call it from code (Python / HTTP)</summary>
+    <p class="codelabel">Python — OpenAI SDK</p>
+    <pre class="code">{esc(py)}</pre>
+    <p class="codelabel">HTTP — curl</p>
+    <pre class="code">{esc(curl)}</pre>
+  </details>
+  <script>
+  (function(){{
+    var send=document.getElementById('pg-send'), out=document.getElementById('pg-out'),
+        box=document.getElementById('pg-prompt'), sel=document.getElementById('pg-model');
+    function show(t){{ out.hidden=false; out.textContent=t; }}
+    send.addEventListener('click', function(){{
+      var p=(box.value||'').trim();
+      if(!p){{ show('Enter a prompt first.'); return; }}
+      send.disabled=true; var label=send.textContent; send.textContent='…';
+      show('Thinking…');
+      fetch('/api/llm/playground', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{model: sel.value, prompt: p}})}})
+        .then(function(r){{ return r.json(); }})
+        .then(function(d){{ show(d && d.text ? d.text : '(no response)'); }})
+        .catch(function(e){{ show('Request failed: ' + e); }})
+        .finally(function(){{ send.disabled=false; send.textContent=label; }});
+    }});
+  }})();
+  </script>
 </div>"""
 
 
@@ -266,8 +310,9 @@ def _state_pill(state):
     return f'<span class="pill state-{esc(state)}">{esc(state)}</span>'
 
 
-def _llm_panel(llm_key, llm_test):
-    """Global unillm status: the shared master key + a Gemini health-check button."""
+def _llm_panel(llm_key, llm_test, models_info=None):
+    """Global unillm status: the shared master key, the models unillm is currently
+    serving (live from /v1/models), and a Gemini health-check button."""
     result = ""
     if llm_test is not None:
         cls = "ok" if llm_test["ok"] else "err"
@@ -275,11 +320,20 @@ def _llm_panel(llm_key, llm_test):
                 else f'Test failed ({esc(llm_test["model"])}):')
         result = (f'<div class="{cls}" style="margin-top:1rem">{head}'
                   f'<pre class="code" style="margin-top:.5rem">{esc(llm_test["text"])}</pre></div>')
+    if models_info is None:
+        models_line = ""
+    elif models_info["ok"] and models_info["models"]:
+        pills = " ".join(f'<span class="pill mono">{esc(m)}</span>' for m in models_info["models"])
+        models_line = f'<p class="kv" style="margin:.6rem 0 0">Models served: {pills}</p>'
+    else:
+        why = esc(models_info.get("error") or "no models") if models_info else ""
+        models_line = f'<p class="kv muted" style="margin:.6rem 0 0">Models served: unavailable ({why})</p>'
     return f"""<div class="card wide" style="margin-bottom:1.5rem">
   <div class="brandhead">{_SVG_GEMINI}<span>LLM proxy — unillm</span></div>
   <p class="kv">Shared master key (injected into every workspace as
     <span class="mono">$OPENAI_API_KEY</span>). Candidates call
     <span class="mono">http://localhost:8081/v1</span> · Gemini only.</p>
+  {models_line}
   <p class="kv" style="margin:.6rem 0 0">Master key:
     <code class="mono" style="background:#0b0d12;border:1px solid #262a33;border-radius:6px;
       padding:.15rem .5rem;user-select:all">{esc(llm_key)}</code></p>
@@ -289,7 +343,8 @@ def _llm_panel(llm_key, llm_test):
 </div>"""
 
 
-def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test=None):
+def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test=None,
+                    models_info=None):
     note = f'<div class="ok">{esc(notice)}</div>' if notice else ""
     rows = "".join(
         f"""<tr>
@@ -301,7 +356,7 @@ def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test
         for s in sessions
     ) or '<tr><td colspan="5" class="muted">No sessions yet.</td></tr>'
     body = f"""{note}
-{_llm_panel(llm_key, llm_test)}
+{_llm_panel(llm_key, llm_test, models_info)}
 <div class="card wide" style="margin-bottom:1.5rem">
   <div class="row" style="justify-content:space-between">
     <h2 style="margin:0;font-size:1.1rem">Sessions</h2>

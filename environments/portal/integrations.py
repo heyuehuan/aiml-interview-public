@@ -47,9 +47,11 @@ def revoke_llm_key(session_id):
     return
 
 
-def gemini_healthcheck(model_name=HEALTHCHECK_MODEL, prompt="Hello"):
-    """Admin 'Test Gemini' button: send a one-shot chat to unillm server-side (from the
-    admin container, so it hits unillm:8081 directly) and report the reply or the error."""
+def llm_chat(model_name, prompt, timeout=60):
+    """One-shot chat against unillm server-side (from the portal/admin container, so it
+    hits unillm:8081 directly with the master key). Powers both the admin 'Test Gemini'
+    button and the candidate playground. Returns {ok, model, text}; text is the reply on
+    success or a human-readable error otherwise (never raises)."""
     payload = json.dumps({
         "model": model_name,
         "messages": [{"role": "user", "content": prompt}],
@@ -59,7 +61,7 @@ def gemini_healthcheck(model_name=HEALTHCHECK_MODEL, prompt="Hello"):
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {UNILLM_MASTER_KEY}"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read())
         text = data["choices"][0]["message"]["content"]
         return {"ok": True, "model": model_name, "text": text}
@@ -68,6 +70,27 @@ def gemini_healthcheck(model_name=HEALTHCHECK_MODEL, prompt="Hello"):
         return {"ok": False, "model": model_name, "text": f"HTTP {exc.code}: {body}"}
     except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as exc:
         return {"ok": False, "model": model_name, "text": f"{type(exc).__name__}: {exc}"}
+
+
+def gemini_healthcheck(model_name=HEALTHCHECK_MODEL, prompt="Hello"):
+    """Admin 'Test Gemini' button."""
+    return llm_chat(model_name, prompt, timeout=30)
+
+
+def list_models(timeout=4):
+    """Live model list unillm is currently serving (GET /v1/models). Short timeout so a
+    down proxy doesn't stall the admin dashboard. Returns {ok, models:[id,...], error}."""
+    req = urllib.request.Request(
+        f"{UNILLM_INTERNAL_URL}/models",
+        headers={"Authorization": f"Bearer {UNILLM_MASTER_KEY}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read())
+        return {"ok": True, "models": [m.get("id", "") for m in data.get("data", [])], "error": None}
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "models": [], "error": f"HTTP {exc.code}"}
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        return {"ok": False, "models": [], "error": f"{type(exc).__name__}: {exc}"}
 
 
 # --- problem packager --------------------------------------------------
