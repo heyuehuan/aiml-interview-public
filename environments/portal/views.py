@@ -95,6 +95,15 @@ footer { color: #6b717c; font-size: .8rem; padding-bottom: 2rem; text-align: cen
 .modal-card p { margin: 0 0 1.2rem; }
 .modal-card .row { justify-content: flex-end; }
 .modal-card button { margin-top: 0; }
+.brandhead { display: flex; align-items: center; gap: .6rem; margin: 0 0 .3rem; font-size: 1.15rem; }
+.brandhead svg { width: 26px; height: 26px; display: block; }
+pre.code { background: #0b0d12; border: 1px solid #262a33; border-radius: 8px;
+  padding: .9rem 1rem; overflow-x: auto; margin: .4rem 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem;
+  line-height: 1.5; color: #c4c9d2; }
+.codelabel { margin: 1rem 0 0; font-size: .82rem; color: #9aa0ab; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; }
+.kv { font-size: .9rem; color: #c4c9d2; } .kv .mono { color: #9fe0b8; }
 """
 
 
@@ -160,6 +169,16 @@ _SVG_TERMINAL = (
     'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
     '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>'
 )
+# Gemini four-point spark (self-contained; brand-blue gradient).
+_SVG_GEMINI = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    '<defs><linearGradient id="gem" x1="0" y1="0" x2="24" y2="24" '
+    'gradientUnits="userSpaceOnUse">'
+    '<stop offset="0" stop-color="#4285f4"/><stop offset="0.5" stop-color="#9b72cb"/>'
+    '<stop offset="1" stop-color="#d96570"/></linearGradient></defs>'
+    '<path fill="url(#gem)" d="M12 0c.34 6.35 5.65 11.66 12 12-6.35.34-11.66 5.65-12 12'
+    '-.34-6.35-5.65-11.66-12-12C6.35 11.66 11.66 6.35 12 0z"/></svg>'
+)
 
 _TILES = [
     ("/problems", _SVG_PROBLEMS, "Problems", "Your assigned problems (opens in a new tab).", True),
@@ -167,6 +186,43 @@ _TILES = [
     ("/jupyter/", _SVG_JUPYTER, "Jupyter", "JupyterLab notebooks.", True),
     ("/ide/", _SVG_TERMINAL, "Terminal", "A shell, inside the IDE.", True),
 ]
+
+
+def _gemini_block(session):
+    """Candidate-facing 'how to call Gemini' block: OpenAI-SDK and HTTP against unillm
+    on localhost:8081. Keeps the raw key off the page — examples use the injected
+    $OPENAI_API_KEY / $LLM_API_KEY env vars the workspace already exports."""
+    models = session["llm_models"] or ["gemini-3.1-flash-lite"]
+    default_model = "gemini-3.1-flash-lite" if "gemini-3.1-flash-lite" in models else models[0]
+    model_pills = " ".join(f'<span class="pill mono">{esc(m)}</span>' for m in models)
+    py = (
+        "from openai import OpenAI\n"
+        "\n"
+        "# OPENAI_BASE_URL and OPENAI_API_KEY are already set in your workspace.\n"
+        "client = OpenAI()\n"
+        "resp = client.chat.completions.create(\n"
+        f'    model="{default_model}",\n'
+        '    messages=[{"role": "user", "content": "Hello"}],\n'
+        ")\n"
+        "print(resp.choices[0].message.content)"
+    )
+    curl = (
+        "curl http://localhost:8081/v1/chat/completions \\\n"
+        '  -H "Authorization: Bearer $OPENAI_API_KEY" \\\n'
+        '  -H "Content-Type: application/json" \\\n'
+        f"""  -d '{{"model": "{default_model}", "messages": [{{"role": "user", "content": "Hello"}}]}}'"""
+    )
+    return f"""<div class="card wide" style="margin-top:1.5rem">
+  <div class="brandhead">{_SVG_GEMINI}<span>Gemini</span></div>
+  <p class="kv">Call Gemini through the workspace LLM proxy at
+    <span class="mono">http://localhost:8081/v1</span> (OpenAI-compatible). Your key is
+    already in your environment as <span class="mono">$OPENAI_API_KEY</span>
+    (alias <span class="mono">$LLM_API_KEY</span>). Available models: {model_pills}</p>
+  <p class="codelabel">Python — OpenAI SDK</p>
+  <pre class="code">{esc(py)}</pre>
+  <p class="codelabel">HTTP — curl</p>
+  <pre class="code">{esc(curl)}</pre>
+</div>"""
 
 
 def home(session, remaining_minutes):
@@ -179,7 +235,8 @@ def home(session, remaining_minutes):
            if remaining_minutes is not None else "")
     body = f"""<div class="row" style="justify-content:center;margin-bottom:1.2rem">
   <span class="pill mono">{esc(session['workspace_user'])}</span>{rem}</div>
-<div class="grid">{tiles}</div>"""
+<div class="grid">{tiles}</div>
+{_gemini_block(session)}"""
     return page(f"Welcome, {session['candidate_name']}", body,
                 "Your workspace is ready. Pick a tool to get started.")
 
@@ -209,7 +266,30 @@ def _state_pill(state):
     return f'<span class="pill state-{esc(state)}">{esc(state)}</span>'
 
 
-def admin_dashboard(admin, sessions, problems, notice=None):
+def _llm_panel(llm_key, llm_test):
+    """Global unillm status: the shared master key + a Gemini health-check button."""
+    result = ""
+    if llm_test is not None:
+        cls = "ok" if llm_test["ok"] else "err"
+        head = (f'Gemini replied via {esc(llm_test["model"])}:' if llm_test["ok"]
+                else f'Test failed ({esc(llm_test["model"])}):')
+        result = (f'<div class="{cls}" style="margin-top:1rem">{head}'
+                  f'<pre class="code" style="margin-top:.5rem">{esc(llm_test["text"])}</pre></div>')
+    return f"""<div class="card wide" style="margin-bottom:1.5rem">
+  <div class="brandhead">{_SVG_GEMINI}<span>LLM proxy — unillm</span></div>
+  <p class="kv">Shared master key (injected into every workspace as
+    <span class="mono">$OPENAI_API_KEY</span>). Candidates call
+    <span class="mono">http://localhost:8081/v1</span> · Gemini only.</p>
+  <p class="kv" style="margin:.6rem 0 0">Master key:
+    <code class="mono" style="background:#0b0d12;border:1px solid #262a33;border-radius:6px;
+      padding:.15rem .5rem;user-select:all">{esc(llm_key)}</code></p>
+  <form method="post" action="/admin/llm/test">
+    <button type="submit">Test Gemini (send &ldquo;Hello&rdquo;)</button>
+  </form>{result}
+</div>"""
+
+
+def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test=None):
     note = f'<div class="ok">{esc(notice)}</div>' if notice else ""
     rows = "".join(
         f"""<tr>
@@ -221,6 +301,7 @@ def admin_dashboard(admin, sessions, problems, notice=None):
         for s in sessions
     ) or '<tr><td colspan="5" class="muted">No sessions yet.</td></tr>'
     body = f"""{note}
+{_llm_panel(llm_key, llm_test)}
 <div class="card wide" style="margin-bottom:1.5rem">
   <div class="row" style="justify-content:space-between">
     <h2 style="margin:0;font-size:1.1rem">Sessions</h2>
