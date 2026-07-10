@@ -60,6 +60,16 @@ export HOME="$HOME_DIR" SESSION_ID="$SID" \
        LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
        OPENAI_BASE_URL="$LLM_BASE_URL" OPENAI_API_KEY="$LLM_API_KEY"
 
+# make `localhost:8081` reach the unillm proxy from inside this container, so the
+# home-page Gemini examples (and the injected LLM_BASE_URL=http://localhost:8081/v1) work
+# verbatim. unillm is on the compose network as unillm:8081; forward loopback → there.
+# Prod swaps to domain:8081 with no change here. socat runs for the container's lifetime.
+UNILLM_UPSTREAM="${UNILLM_UPSTREAM:-unillm:8081}"
+if ! pgrep -f "TCP-LISTEN:8081" >/dev/null 2>&1; then
+  log "forwarding localhost:8081 -> $UNILLM_UPSTREAM (unillm)"
+  socat TCP-LISTEN:8081,fork,reuseaddr,bind=127.0.0.1 "TCP:$UNILLM_UPSTREAM" &
+fi
+
 if [ "$TOOL" = "code-server" ]; then
   USER_DATA="$HOME_DIR/.local/share/code-server"
   mkdir -p "$USER_DATA/User"

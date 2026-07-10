@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # gosu: drop from the root entrypoint to the per-session non-root candidate user.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git tmux ripgrep sqlite3 curl jq make gcc g++ ca-certificates procps \
-        bash gosu \
+        bash gosu socat \
     && rm -rf /var/lib/apt/lists/*
 
 # Trimmed tier-1 Python stack.
