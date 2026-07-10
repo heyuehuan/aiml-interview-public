@@ -10,8 +10,9 @@ services:
     image: caddy:2
     restart: unless-stopped
     ports:
-      # Local plain-HTTP entrypoint. Production terminates TLS on 443 instead.
-      - "${PROXY_HTTP_PORT:-8080}:80"
+      # Loopback-only plain HTTP. In production the host nginx terminates TLS for
+      # interview.example.com (TLS cert) and reverse-proxies to this.
+      - "127.0.0.1:${PROXY_HTTP_PORT:-8080}:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -101,7 +102,9 @@ services:
     image: interview-platform/unillm:dev
     restart: unless-stopped
     ports:
-      - "${UNILLM_HOST_PORT:-8081}:8081"
+      # Loopback-only: candidates reach unillm in-container via the workspace loopback
+      # forwarder (→ unillm:8081 on the compose net), so 8081 need not be public.
+      - "127.0.0.1:${UNILLM_HOST_PORT:-8081}:8081"
     environment:
       UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:-sk-unillm-dev-change-me}
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-sa.json
