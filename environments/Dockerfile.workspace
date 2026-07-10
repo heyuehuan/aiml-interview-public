@@ -8,8 +8,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # Non-Python tooling candidates reach for + build deps for any source wheels.
+# gosu: drop from the root entrypoint to the per-session non-root candidate user.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git tmux ripgrep sqlite3 curl jq make gcc g++ ca-certificates procps \
+        bash gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Trimmed tier-1 Python stack.
@@ -24,23 +26,31 @@ RUN curl -fsSL https://code-server.dev/install.sh | sh
 # Pinned to tested versions for a deterministic interview image; the top-level two
 # pull in their dependencies (debugpy, jupyter-renderers, ...). ipykernel (in the pip
 # layer) is the kernel the Jupyter extension runs against.
-RUN code-server \
+# Installed into a shared, read-only-friendly dir so any per-session non-root user
+# (created at runtime by the entrypoint) picks them up via --extensions-dir.
+RUN code-server --extensions-dir /opt/cs/extensions \
         --install-extension ms-python.python@2026.4.0 \
-        --install-extension ms-toolsai.jupyter@2025.9.1
+        --install-extension ms-toolsai.jupyter@2025.9.1 \
+    && chmod -R a+rX /opt/cs
 
-# Point the Python/Jupyter extensions at the one interpreter, and keep the extension
-# set frozen (controlled offline-ish environment).
-RUN mkdir -p /root/.local/share/code-server/User && \
+# Baseline VS Code settings, copied into the candidate's user-data-dir at session start.
+RUN mkdir -p /opt/cs && \
     printf '%s\n' \
       '{' \
       '  "python.defaultInterpreterPath": "/usr/local/bin/python",' \
       '  "extensions.autoCheckUpdates": false,' \
       '  "extensions.autoUpdate": false' \
-      '}' > /root/.local/share/code-server/User/settings.json
+      '}' > /opt/cs/settings.json
+
+# Workspace entrypoint: waits for an active session, creates the non-root candidate user,
+# then launches the requested tool as that user.
+COPY workspace/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Shared workspace mount point (the candidate volume; wiped on reset).
-RUN mkdir -p /root/workspace
-WORKDIR /root/workspace
+RUN mkdir -p /data/workspace
+WORKDIR /data/workspace
 
 # Internal ports only — nothing is published except through the proxy.
 EXPOSE 8443 8888
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
