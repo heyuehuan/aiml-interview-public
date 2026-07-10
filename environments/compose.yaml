@@ -34,8 +34,12 @@ services:
       PROBLEMS_SEED_DIR: /problems_seed
       PROBLEMS_REGISTRY: /srv/problems/registry.yaml
       PACKAGER_CWD: /srv
-      LLM_ADMIN_URL: ${LLM_ADMIN_URL:-http://unillm:4000/llm}
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://unillm:4000/v1}
+      # unillm: one shared master key. LLM_BASE_URL is the *candidate-facing* URL
+      # baked into the workspace env (loopback forwarder → unillm). UNILLM_INTERNAL_URL
+      # is the compose-internal URL the admin's Test-Gemini button calls server-side.
+      UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:-sk-unillm-dev-change-me}
+      UNILLM_INTERNAL_URL: ${UNILLM_INTERNAL_URL:-http://unillm:8081/v1}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:8081/v1}
       PORTAL_SECRET: ${PORTAL_SECRET:-dev-insecure-secret-change-me}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
@@ -71,6 +75,30 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;exit(0 if urllib.request.urlopen('http://localhost:8001/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [interview]
+
+  # unillm: OpenAI-compatible Vertex AI Gemini proxy. Unlike the other services it
+  # is published directly on host :8081 (candidates use localhost:8081, prod domain:8081)
+  # rather than fronted by caddy. Auth is one shared master key; the Vertex
+  # service-account credential is mounted read-only and never leaves this container.
+  unillm:
+    build:
+      context: ../proxy
+      dockerfile: Dockerfile
+    image: interview-platform/unillm:dev
+    restart: unless-stopped
+    ports:
+      - "${UNILLM_HOST_PORT:-8081}:8081"
+    environment:
+      UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:-sk-unillm-dev-change-me}
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-sa.json
+    volumes:
+      - ${GCP_SA_KEY_FILE:-./secrets/gcp-sa.json}:/secrets/gcp-sa.json:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;exit(0 if urllib.request.urlopen('http://localhost:8081/health').status==200 else 1)"]
       interval: 10s
       timeout: 3s
       retries: 5

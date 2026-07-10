@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import subprocess
 import tempfile
 import urllib.error
@@ -19,8 +18,12 @@ import urllib.request
 import model
 
 CONTROL_FILE = os.environ.get("CONTROL_FILE", "/control/active.json")
-LLM_ADMIN_URL = os.environ.get("LLM_ADMIN_URL", "http://unillm:4000/llm")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://unillm:4000/v1")
+# unillm: one shared master key, not per-session keys.
+UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8081/v1")
+# Compose-internal URL the admin health check calls (candidates use localhost:8081).
+UNILLM_INTERNAL_URL = os.environ.get("UNILLM_INTERNAL_URL", "http://unillm:8081/v1")
+HEALTHCHECK_MODEL = "gemini-3.1-flash-lite"
 PROBLEMS_SEED_DIR = os.environ.get("PROBLEMS_SEED_DIR", "/problems_seed")
 PACKAGER_CWD = os.environ.get("PACKAGER_CWD", "/srv")
 SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR", "/srv/scripts")
@@ -30,33 +33,41 @@ def _log(msg):
     print(f"[integrations] {msg}", flush=True)
 
 
-# --- session LLM key ---------------------------------------------------
+# --- LLM key -----------------------------------------------------------
 def issue_llm_key(session):
-    """the integration contract: POST /llm/admin/keys -> {api_key}. Falls back to a local dev key
-    so the workspace still gets an env var when the proxy isn't up yet."""
-    payload = json.dumps({
-        "session_id": session["id"],
-        "models": session["llm_models"],
-        "budget_usd": session["llm_budget_usd"],
-    }).encode()
-    try:
-        req = urllib.request.Request(f"{LLM_ADMIN_URL}/admin/keys", data=payload,
-                                     headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            key = json.loads(resp.read()).get("api_key")
-            if key:
-                return key
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        _log(f"the proxy key issue failed ({exc}); using dev placeholder key")
-    return "sk-dev-" + secrets.token_hex(16)
+    """One shared unillm master key. unillm has no
+    per-session key API in this MVP, so every workspace gets the same key; model
+    control is enforced by unillm's config allowlist, not the key."""
+    return UNILLM_MASTER_KEY
 
 
 def revoke_llm_key(session_id):
+    """No-op: the shared master key is not per-session, so there is nothing to revoke.
+    Access is cut by clearing the control file (workspace tools lock, env is gone)."""
+    return
+
+
+def gemini_healthcheck(model_name=HEALTHCHECK_MODEL, prompt="Hello"):
+    """Admin 'Test Gemini' button: send a one-shot chat to unillm server-side (from the
+    admin container, so it hits unillm:8081 directly) and report the reply or the error."""
+    payload = json.dumps({
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(
+        f"{UNILLM_INTERNAL_URL}/chat/completions", data=payload, method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {UNILLM_MASTER_KEY}"})
     try:
-        req = urllib.request.Request(f"{LLM_ADMIN_URL}/admin/keys/{session_id}", method="DELETE")
-        urllib.request.urlopen(req, timeout=5).close()
-    except (urllib.error.URLError, OSError) as exc:
-        _log(f"the proxy key revoke skipped ({exc})")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        text = data["choices"][0]["message"]["content"]
+        return {"ok": True, "model": model_name, "text": text}
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")[:600]
+        return {"ok": False, "model": model_name, "text": f"HTTP {exc.code}: {body}"}
+    except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as exc:
+        return {"ok": False, "model": model_name, "text": f"{type(exc).__name__}: {exc}"}
 
 
 # --- problem packager --------------------------------------------------
