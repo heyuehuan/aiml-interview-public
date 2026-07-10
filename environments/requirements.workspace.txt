@@ -25,3 +25,6 @@ python-dotenv
 tqdm
 pytest
 ruff
+plotly
+fastapi
+uvicorn
