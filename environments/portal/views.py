@@ -71,7 +71,8 @@ a.tile { display: block; text-decoration: none; color: inherit; background: #1a1
   border: 1px solid #262a33; border-radius: 12px; padding: 1.25rem;
   transition: border-color .12s, transform .12s; }
 a.tile:hover { border-color: #3d7dff; transform: translateY(-2px); }
-a.tile .ico { font-size: 1.8rem; }
+a.tile .ico { height: 40px; display: flex; align-items: center; }
+a.tile .ico svg { width: 38px; height: 38px; display: block; }
 a.tile h2 { margin: .5rem 0 .2rem; font-size: 1.05rem; }
 a.tile p { margin: 0; color: #9aa0ab; font-size: .88rem; }
 table { width: 100%; border-collapse: collapse; font-size: .92rem; }
@@ -136,11 +137,35 @@ def terms(session, error=None):
     return page(f"Welcome, {session['candidate_name']}", body, "Please review before you begin.")
 
 
+# Inline SVG glyphs (self-contained, no external assets). Ported from the the workspace stack home
+# shell so the post-access-code home matches the brand marks: VS Code + Jupyter logos,
+# a document mark for problems, a terminal caret for the shell.
+_SVG_PROBLEMS = (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="#5b8def" stroke-width="1.7" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="M14 3v4a1 1 0 0 0 1 1h4"/>'
+    '<path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/>'
+    '<path d="M9 13h6M9 17h6"/></svg>'
+)
+_SVG_IDE = (
+    '<svg viewBox="0 0 24 24" fill="#0e9dd8" aria-hidden="true">'
+    '<path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>'
+)
+_SVG_JUPYTER = (
+    '<svg viewBox="0 0 24 24" fill="#f37726" aria-hidden="true">'
+    '<path d="M7.157 22.201A1.784 1.799 0 0 1 5.374 24a1.784 1.799 0 0 1-1.784-1.799 1.784 1.799 0 0 1 1.784-1.799 1.784 1.799 0 0 1 1.783 1.799zM20.582 1.427a1.415 1.427 0 0 1-1.415 1.428 1.415 1.427 0 0 1-1.416-1.428A1.415 1.427 0 0 1 19.167 0a1.415 1.427 0 0 1 1.415 1.427zM4.992 3.336A1.047 1.056 0 0 1 3.946 4.39a1.047 1.056 0 0 1-1.047-1.055A1.047 1.056 0 0 1 3.946 2.28a1.047 1.056 0 0 1 1.046 1.056zm7.336 1.517c3.769 0 7.06 1.38 8.768 3.424a9.363 9.363 0 0 0-3.393-4.547 9.238 9.238 0 0 0-5.377-1.728A9.238 9.238 0 0 0 6.95 3.73a9.363 9.363 0 0 0-3.394 4.547c1.713-2.04 5.004-3.424 8.772-3.424zm.001 13.295c-3.768 0-7.06-1.381-8.768-3.425a9.363 9.363 0 0 0 3.394 4.547A9.238 9.238 0 0 0 12.33 21a9.238 9.238 0 0 0 5.377-1.729 9.363 9.363 0 0 0 3.393-4.547c-1.712 2.044-5.003 3.425-8.772 3.425Z"/></svg>'
+)
+_SVG_TERMINAL = (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="#9aa0ab" stroke-width="1.7" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>'
+)
+
 _TILES = [
-    ("/problems", "📄", "Problems", "Your assigned problems (opens in a new tab).", True),
-    ("/ide/", "🧩", "IDE", "VS Code in the browser.", True),
-    ("/jupyter/", "📊", "Jupyter", "JupyterLab notebooks.", True),
-    ("/ide/", "⌨️", "Terminal", "A shell, inside the IDE.", True),
+    ("/problems", _SVG_PROBLEMS, "Problems", "Your assigned problems (opens in a new tab).", True),
+    ("/ide/", _SVG_IDE, "IDE", "VS Code in the browser.", True),
+    ("/jupyter/", _SVG_JUPYTER, "Jupyter", "JupyterLab notebooks.", True),
+    ("/ide/", _SVG_TERMINAL, "Terminal", "A shell, inside the IDE.", True),
 ]
 
 

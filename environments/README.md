@@ -17,8 +17,6 @@ proxy that fronts it.
 - `portal/` — portal session service + admin panel (see `portal/README.md`).
 - `workspace/entrypoint.sh` — provisions the non-root candidate user from the portal
   control file and launches the requested tool as that user.
-- `homepage/` — the original static home shell (now a design reference; the portal
-  serves the session-aware home page).
 
 ## Run it locally
 
