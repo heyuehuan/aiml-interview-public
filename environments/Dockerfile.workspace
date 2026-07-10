@@ -1,0 +1,46 @@
+# candidate workspace image: python 3.12 + trimmed tier-1 ML stack + code-server
+# + JupyterLab. One image, two roles (code-server / jupyterlab) run from it in
+# compose, both mounting the same ~/workspace volume. See infra/images/base-image-spec.md.
+FROM python:3.12-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+# Non-Python tooling candidates reach for + build deps for any source wheels.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git tmux ripgrep sqlite3 curl jq make gcc g++ ca-certificates procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Trimmed tier-1 Python stack.
+COPY requirements.workspace.txt /tmp/requirements.workspace.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.workspace.txt
+
+# code-server (VS Code OSS server, MIT).
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# Python + Jupyter support inside VS Code, from Open VSX (code-server's default
+# gallery — license-clean; MS marketplace is off-limits for non-MS products).
+# Pinned to tested versions for a deterministic interview image; the top-level two
+# pull in their dependencies (debugpy, jupyter-renderers, ...). ipykernel (in the pip
+# layer) is the kernel the Jupyter extension runs against.
+RUN code-server \
+        --install-extension ms-python.python@2026.4.0 \
+        --install-extension ms-toolsai.jupyter@2025.9.1
+
+# Point the Python/Jupyter extensions at the one interpreter, and keep the extension
+# set frozen (controlled offline-ish environment).
+RUN mkdir -p /root/.local/share/code-server/User && \
+    printf '%s\n' \
+      '{' \
+      '  "python.defaultInterpreterPath": "/usr/local/bin/python",' \
+      '  "extensions.autoCheckUpdates": false,' \
+      '  "extensions.autoUpdate": false' \
+      '}' > /root/.local/share/code-server/User/settings.json
+
+# Shared workspace mount point (the candidate volume; wiped on reset).
+RUN mkdir -p /root/workspace
+WORKDIR /root/workspace
+
+# Internal ports only — nothing is published except through the proxy.
+EXPOSE 8443 8888

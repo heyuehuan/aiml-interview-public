@@ -1,0 +1,96 @@
+# the workspace stack workspace stack.
+# Only the proxy publishes a host port; every other service is reachable solely on the
+# internal network. Local dev: `docker compose up --build` then open the proxy port.
+name: interview-workspace
+
+services:
+  # Single reverse proxy fronting everything.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      # Local plain-HTTP entrypoint. Production terminates TLS on 443 instead.
+      - "${PROXY_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      portal-stub:
+        condition: service_healthy
+    networks: [interview]
+
+  # the portal stand-in: home page shell + /api/authz stub. Replaced by the real session service.
+  portal-stub:
+    image: python:3.12-slim-bookworm
+    restart: unless-stopped
+    command: ["python", "/app/server.py"]
+    environment:
+      - PORT=8000
+    volumes:
+      - ./portal-stub:/app:ro
+      - ./homepage:/srv:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [interview]
+
+  # VS Code in the browser (/ide -> :8443).
+  code-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace
+    image: interview-platform/workspace:dev
+    restart: unless-stopped
+    command: ["code-server", "--auth", "none", "--disable-telemetry", "--bind-addr", "0.0.0.0:8443", "/root/workspace"]
+    volumes:
+      - workspace:/root/workspace
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8443/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [interview]
+
+  # JupyterLab (/jupyter -> :8888), same image + same workspace volume.
+  jupyterlab:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace
+    image: interview-platform/workspace:dev
+    restart: unless-stopped
+    command:
+      - jupyter
+      - lab
+      - --ip=0.0.0.0
+      - --port=8888
+      - --no-browser
+      - --allow-root
+      - --ServerApp.base_url=/jupyter
+      - --ServerApp.token=
+      - --ServerApp.password=
+      - --ServerApp.allow_origin=*
+      - --ServerApp.disable_check_xsrf=True
+      - --ServerApp.root_dir=/root/workspace
+    volumes:
+      - workspace:/root/workspace
+    depends_on:
+      code-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8888/jupyter/api/status"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [interview]
+
+volumes:
+  workspace:
+  caddy_data:
+  caddy_config:
+
+networks:
+  interview:
+    driver: bridge
