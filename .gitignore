@@ -11,6 +11,11 @@ __pycache__/
 .env
 **/.env
 !**/.env.example
+# Vertex AI service-account credentials (unillm) — never committed
+**/secrets/
+your-gcp-project-*.json
+*-sa.json
+*.iam.gserviceaccount.com.json
 
 # tooling
 .DS_Store
