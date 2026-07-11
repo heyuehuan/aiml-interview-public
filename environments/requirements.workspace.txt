@@ -13,6 +13,10 @@ xgboost
 lightgbm
 pyarrow
 duckdb
+# Excel readers: a problem may hand the candidate a raw .xls workbook to parse,
+# and pandas dispatches read_excel to xlrd (.xls) / openpyxl (.xlsx).
+xlrd
+openpyxl
 jupyterlab
 ipykernel
 ipywidgets
