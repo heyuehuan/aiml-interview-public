@@ -509,6 +509,21 @@ def _deliverability_panel(report):
 </div>"""
 
 
+def _change_password_panel():
+    return """<div class="card wide" style="margin-bottom:1.5rem">
+  <h2 style="margin-top:0;font-size:1.1rem">Change password</h2>
+  <form method="post" action="/admin/password" style="max-width:360px">
+    <label for="cp">Current password</label>
+    <input type="password" id="cp" name="current_password" required autocomplete="current-password">
+    <label for="np">New password</label>
+    <input type="password" id="np" name="new_password" required autocomplete="new-password" minlength="8">
+    <label for="pp">Confirm new password</label>
+    <input type="password" id="pp" name="confirm_password" required autocomplete="new-password" minlength="8">
+    <button type="submit">Update password</button>
+  </form>
+</div>"""
+
+
 def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test=None,
                     models_info=None, all_problems=None, deliver_report=None):
     note = f'<div class="ok">{esc(notice)}</div>' if notice else ""
@@ -540,7 +555,8 @@ def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test
   </form>
 </div>
 {_deliverability_panel(deliver_report)}
-{_visibility_panel(all_problems)}"""
+{_visibility_panel(all_problems)}
+{_change_password_panel()}"""
     return page("Admin", body)
 
 

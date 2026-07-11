@@ -74,6 +74,9 @@ if [ "$TOOL" = "code-server" ]; then
   USER_DATA="$HOME_DIR/.local/share/code-server"
   mkdir -p "$USER_DATA/User"
   [ -f /opt/cs/settings.json ] && cp /opt/cs/settings.json "$USER_DATA/User/settings.json"
+  # Always write coder.json so VS Code opens the right folder, not a stale one from
+  # a previous session that used a different workspace_user.
+  printf '{"query":{"folder":"%s/workspace"}}\n' "$HOME_DIR" > "$USER_DATA/coder.json"
   chown -R "$USER_NAME:$USER_NAME" "$HOME_DIR/.local"
   log "launching code-server as $USER_NAME"
   exec gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
