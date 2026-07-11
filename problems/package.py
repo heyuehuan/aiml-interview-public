@@ -128,8 +128,8 @@ def _ship_compiled(problem_src, dest_data_dir):
     ``data/dist/`` — the deterministic, delivery-guaranteed source that rides
     along in git and needs no generator (or raw extract) on the host. Everything
     under ``dist/`` is candidate-safe by construction, so files *and* directories
-    (e.g. ``reports/``) are shipped; a denylist still backstops a mis-placed
-    answer key. Won't clobber a path already provided via ``candidate_paths``.
+    (e.g. ``reports/``) are shipped; the name/part denylist still backstops a
+    mis-placed answer key. Won't clobber a path already provided via ``candidate_paths``.
     Returns the list of shipped top-level names (empty when there is no ``dist/``)."""
     dist = os.path.join(problem_src, "data", "dist")
     shipped = []
@@ -138,7 +138,11 @@ def _ship_compiled(problem_src, dest_data_dir):
     os.makedirs(dest_data_dir, exist_ok=True)
     for name in sorted(os.listdir(dist)):
         src = os.path.join(dist, name)
-        if name in DENY_PARTS or name in DENY_NAMES or name.endswith(DENY_SUFFIXES):
+        # No DENY_SUFFIXES here: dist/ is deliberately curated candidate data, and a
+        # raw workbook can BE the dataset.
+        # The suffix rule still guards candidate_paths, where a mis-authored manifest
+        # could reach into un-curated problem files.
+        if name in DENY_PARTS or name in DENY_NAMES:
             continue
         dst = os.path.join(dest_data_dir, name)
         if os.path.exists(dst):

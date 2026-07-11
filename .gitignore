@@ -3,6 +3,10 @@
 # (pre-compiled, shipped as-is by the packager); data/out/ stays throwaway scratch.
 problems/*/data/out/
 
+# interviewer-only raw extracts — never committed (CLAUDE.md visibility contract);
+# lives host-local, consumed by data/generate.py to build the candidate dataset
+problems/*/data_raw/
+
 # python
 __pycache__/
 *.py[cod]
