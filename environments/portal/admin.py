@@ -101,6 +101,24 @@ def logout(req):
     return resp
 
 
+@router.route("POST", "/admin/password")
+def change_password(req):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    current = req.form.get("current_password", "")
+    new = req.form.get("new_password", "").strip()
+    confirm = req.form.get("confirm_password", "").strip()
+    if not model.authenticate_admin(who, current):
+        return _dashboard(who, notice="Current password is incorrect.")
+    if len(new) < 8:
+        return _dashboard(who, notice="New password must be at least 8 characters.")
+    if new != confirm:
+        return _dashboard(who, notice="New passwords do not match.")
+    model.change_password(who, new)
+    return _dashboard(who, notice="Password changed successfully.")
+
+
 @router.route("POST", "/admin/sessions")
 def create(req):
     who, redirect = _require(req)

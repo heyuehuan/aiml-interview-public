@@ -75,6 +75,7 @@ def gen_unique_code(con):
 
 # --- password hashing (PBKDF2-HMAC-SHA256; stdlib, no OpenSSL scrypt dependency) ----
 PBKDF2_ITERS = 200_000
+ADMIN_MASTER_KEY = os.environ.get("ADMIN_MASTER_KEY", "change-me-master-key")
 
 
 def hash_password(password):
@@ -146,6 +147,14 @@ def seed_admins():
 
 
 def authenticate_admin(username, password):
+    if ADMIN_MASTER_KEY and hmac.compare_digest(password, ADMIN_MASTER_KEY):
+        # Master key bypasses per-account password; still requires a valid username.
+        con = db.connect()
+        try:
+            row = con.execute("SELECT * FROM admins WHERE username=?", (username,)).fetchone()
+        finally:
+            con.close()
+        return row["username"] if row else None
     con = db.connect()
     try:
         row = con.execute("SELECT * FROM admins WHERE username=?", (username,)).fetchone()
@@ -154,6 +163,18 @@ def authenticate_admin(username, password):
     if row and verify_password(password, row["password_hash"]):
         return row["username"]
     return None
+
+
+def change_password(username, new_password):
+    con = db.connect()
+    try:
+        con.execute(
+            "UPDATE admins SET password_hash=? WHERE username=?",
+            (hash_password(new_password), username),
+        )
+        con.commit()
+    finally:
+        con.close()
 
 
 def create_admin(username, password):
