@@ -20,7 +20,9 @@ services:
     depends_on:
       portal:
         condition: service_healthy
-    networks: [interview]
+    # Fronts both sides: portal/admin on the interview net, code-server/Jupyter on the
+    # candidate net.
+    networks: [interview, candidate]
 
   # the portal candidate portal: access code -> terms -> home, plus /api/authz.
   portal:
@@ -107,19 +109,27 @@ services:
     restart: unless-stopped
     ports:
       # Loopback-only: candidates reach unillm in-container via the workspace loopback
-      # forwarder (→ unillm:8081 on the compose net), so 8081 need not be public.
+      # forwarder (→ unillm:8081 on the candidate net), so 8081 need not be public.
       - "127.0.0.1:${UNILLM_HOST_PORT:-8081}:8081"
     environment:
       UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:-sk-unillm-dev-change-me}
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-sa.json
+      # Transcript audit stream: unillm appends every completion to the
+      # active session's llm_transcript.jsonl, resolving the session from the control file.
+      DATA_DIR: /data
+      CONTROL_FILE: /control/active.json
     volumes:
       - ${GCP_SA_KEY_FILE:-./secrets/gcp-sa.json}:/secrets/gcp-sa.json:ro
+      - platform_data:/data          # writes only data/sessions/<id>/llm_transcript.jsonl
+      - control:/control:ro          # reads the active session_id; never writes it
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;exit(0 if urllib.request.urlopen('http://localhost:8081/health').status==200 else 1)"]
       interval: 10s
       timeout: 3s
       retries: 5
-    networks: [interview]
+    # On both nets: candidate containers must reach it; the admin's Test-Gemini button
+    # calls it server-side from the portal net.
+    networks: [interview, candidate]
 
   # VS Code in the browser (/ide -> :8443). Launched as the non-root
   # candidate user by the the portal entrypoint once a session is active.
@@ -143,7 +153,10 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    networks: [interview]
+    # Candidate net only: a candidate has a shell in here, so they must NOT be able to
+    # reach portal:8000 / admin:8001 / the snapshot agent directly. unillm and caddy sit
+    # on this net because the candidate needs the former and the latter must proxy in.
+    networks: [candidate]
 
   # JupyterLab (/jupyter -> :8888), same image + same workspace volume.
   jupyterlab:
@@ -169,7 +182,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    networks: [interview]
+    networks: [candidate]   # see code-server: candidate-reachable containers are isolated
 
   # snapshot agent: commit data/workspace -> shadow.git every 60s
   # while a session is active. The git dependency lives only here (portal image stays
@@ -200,5 +213,11 @@ volumes:
   caddy_config:
 
 networks:
+  # Platform services (portal, admin, snapshot agent) — no candidate container attaches.
   interview:
+    driver: bridge
+  # Candidate-reachable containers (code-server, JupyterLab) + what they legitimately
+  # need (unillm, and caddy to proxy them in). A candidate has a terminal in here, so
+  # anything on this net must be assumed reachable by them.
+  candidate:
     driver: bridge

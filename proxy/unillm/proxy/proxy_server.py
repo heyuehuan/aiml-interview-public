@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from unillm import __version__
 from unillm._logging import verbose_proxy_logger, set_verbose
+from unillm.proxy import transcript
 from unillm.proxy.auth import user_api_key_auth
 from unillm.types import (
     ChatCompletionRequest,
@@ -314,7 +315,8 @@ async def chat_completions(
     model_params = _get_model_params(model)
   
     verbose_proxy_logger.debug(f"Chat completion request for model: {model} -> {actual_model}")
-  
+
+    started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
         # Build kwargs for handler - include kms_key_name if present (for vertex-ai-kms)
         handler_kwargs = {
@@ -334,19 +336,32 @@ async def chat_completions(
             handler_kwargs["kms_key_name"] = model_params.get("kms_key_name")
       
         response = await handler.chat_completion(**handler_kwargs)
-      
+
         if stream:
+            # Tee the stream into the transcript: the candidate gets every chunk
+            # untouched, and the audit trail still records what was generated.
             return StreamingResponse(
-                response,
+                transcript.tee_stream(response, endpoint="chat.completions", model=model,
+                                      messages=messages, started=started),
                 media_type="text/event-stream",
             )
         else:
             # Update model name in response to match request
             response.model = model
+            transcript.record(
+                endpoint="chat.completions", model=model, messages=messages,
+                response_text=transcript.text_of(response),
+                usage=transcript.usage_of(response),
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
             return response
-  
+
     except Exception as e:
         verbose_proxy_logger.exception(f"Error in chat completion: {e}")
+        transcript.record(
+            endpoint="chat.completions", model=model, messages=messages, error=e,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
@@ -381,7 +396,8 @@ async def completions(
     model_params = _get_model_params(model)
   
     verbose_proxy_logger.debug(f"Text completion request for model: {model} -> {actual_model}")
-  
+
+    started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
         # Build kwargs for handler - include kms_key_name if present (for vertex-ai-kms)
         handler_kwargs = {
@@ -401,19 +417,30 @@ async def completions(
             handler_kwargs["kms_key_name"] = model_params.get("kms_key_name")
       
         response = await handler.text_completion(**handler_kwargs)
-      
+
         if stream:
             return StreamingResponse(
-                response,
+                transcript.tee_stream(response, endpoint="completions", model=model,
+                                      prompt=prompt, started=started),
                 media_type="text/event-stream",
             )
         else:
             # Update model name in response to match request
             response.model = model
+            transcript.record(
+                endpoint="completions", model=model, prompt=prompt,
+                response_text=transcript.text_of(response),
+                usage=transcript.usage_of(response),
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
             return response
-  
+
     except Exception as e:
         verbose_proxy_logger.exception(f"Error in text completion: {e}")
+        transcript.record(
+            endpoint="completions", model=model, prompt=prompt, error=e,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
