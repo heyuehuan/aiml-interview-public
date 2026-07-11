@@ -1,4 +1,6 @@
-# generated datasets are never committed — regenerate via data/generate.py
+# generated datasets are never committed — regenerate via data/generate.py.
+# The delivery-guaranteed candidate dataset lives in the committed data/dist/
+# (pre-compiled, shipped as-is by the packager); data/out/ stays throwaway scratch.
 problems/*/data/out/
 
 # python

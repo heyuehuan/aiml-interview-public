@@ -39,12 +39,21 @@ def healthz(req):
 UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me")
 
 
-def _dashboard(who, notice=None, llm_test=None):
+def _dashboard(who, notice=None, llm_test=None, deliver_report=None):
     return Response.html(views.admin_dashboard(
         who, model.list_sessions(), registry.load_problems(),
         notice=notice, llm_key=UNILLM_MASTER_KEY, llm_test=llm_test,
         models_info=integrations.list_models(),
-        all_problems=registry.all_problems()))
+        all_problems=registry.all_problems(), deliver_report=deliver_report))
+
+
+@router.route("POST", "/admin/problems/validate-data")
+def validate_data(req):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    ids = [p["id"] for p in registry.all_problems()]
+    return _dashboard(who, deliver_report=integrations.check_deliverable(ids))
 
 
 @router.route("POST", "/admin/problems/<pid>/visibility")

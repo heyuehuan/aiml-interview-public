@@ -14,17 +14,21 @@ component that copies problem content, so it enforces the contract by constructi
   * it copies exactly the files/dirs listed in ``candidate_paths`` — nothing else
     from the source tree (never ``solution/``, ``rubric.md``, ``generate.py``,
     ``data_raw/``, ``*.xls`` answer sources, ...);
-  * it runs ``data.generator`` in a throwaway copy and ships only the *top-level*
-    files it writes under ``data/out/`` (the candidate dataset), never the
-    ``data/out/generated/`` subtree (the interviewer answer keys);
+  * for the candidate dataset it prefers a problem's committed ``data/dist/``
+    (pre-compiled, delivery-guaranteed) and only falls back to running
+    ``data.generator`` in a throwaway copy when no ``dist/`` is present, shipping
+    only the *top-level* files under ``data/out/`` (never the
+    ``data/out/generated/`` subtree of interviewer answer keys);
   * a denylist backstops the whitelist in case a manifest is mis-authored.
 
-Best-effort per problem: a generator that can't run (missing deps / raw extract)
-is logged and skipped so the candidate still gets the statement + starter + data
-dictionary; the packager exits 0 as long as the seed dir is written.
+Fail loud on missing data: if a problem is supposed to carry a candidate dataset
+(it commits ``data/dist/`` or declares ``data.generator``) but neither path
+delivers a single file, the packager raises and exits non-zero — a seed that
+would drop the candidate into an empty data dir is treated as broken, not shipped.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -42,7 +46,7 @@ DENY_SUFFIXES = (".xls", ".xlsx")
 
 
 def _log(msg):
-    print(f"[package] {msg}", flush=True)
+    print(f"[package] {msg}", file=sys.stderr, flush=True)
 
 
 # --- tiny manifest reader (no YAML dependency) ----------------
@@ -118,26 +122,58 @@ def _copy(src, dst):
         shutil.copy2(src, dst)
 
 
-# --- generated candidate data ----------------------------------------------
+# --- candidate data: prefer committed, pre-compiled dist/ -------------------
+def _ship_compiled(problem_src, dest_data_dir):
+    """Ship a problem's committed, pre-compiled candidate dataset from
+    ``data/dist/`` — the deterministic, delivery-guaranteed source that rides
+    along in git and needs no generator (or raw extract) on the host. Everything
+    under ``dist/`` is candidate-safe by construction, so files *and* directories
+    (e.g. ``reports/``) are shipped; a denylist still backstops a mis-placed
+    answer key. Won't clobber a path already provided via ``candidate_paths``.
+    Returns the list of shipped top-level names (empty when there is no ``dist/``)."""
+    dist = os.path.join(problem_src, "data", "dist")
+    shipped = []
+    if not os.path.isdir(dist):
+        return shipped
+    os.makedirs(dest_data_dir, exist_ok=True)
+    for name in sorted(os.listdir(dist)):
+        src = os.path.join(dist, name)
+        if name in DENY_PARTS or name in DENY_NAMES or name.endswith(DENY_SUFFIXES):
+            continue
+        dst = os.path.join(dest_data_dir, name)
+        if os.path.exists(dst):
+            continue  # already provided via candidate_paths
+        _copy(src, dst)
+        shipped.append(name)
+    return shipped
+
+
+# --- generated candidate data (fallback when no committed dist/) ------------
 def _generate_into(problem_src, dest_data_dir):
     """Run the problem's generator in a throwaway copy of the problem tree, then ship
     the top-level files it wrote under ``data/out/`` (the candidate dataset) into
     ``dest_data_dir``. The ``data/out/generated/`` subtree (interviewer answer keys)
-    is never copied. Returns the list of shipped filenames (may be empty)."""
+    is never copied. A generator that *fails* (non-zero exit, timeout, OS error)
+    raises ``RuntimeError`` — a broken generator must be loud, not silently ship an
+    empty dataset. A clean run that produces no top-level candidate file (e.g. a
+    generator that only writes interviewer answer keys) returns ``[]`` without
+    error. Returns the list of shipped filenames."""
     shipped = []
     tmp = tempfile.mkdtemp(prefix="pkg-")
     try:
         work = os.path.join(tmp, "p")
         shutil.copytree(problem_src, work,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        proc = subprocess.run(
-            [sys.executable, "data/generate.py"],
-            cwd=work, capture_output=True, text=True, timeout=180,
-        )
+        try:
+            proc = subprocess.run(
+                [sys.executable, "data/generate.py"],
+                cwd=work, capture_output=True, text=True, timeout=180,
+            )
+        except (subprocess.SubprocessError, OSError) as exc:
+            raise RuntimeError(f"generator did not complete ({type(exc).__name__}: {exc})")
         if proc.returncode != 0:
-            _log(f"generator failed (rc={proc.returncode}); shipping static data only. "
-                 f"stderr: {proc.stderr.strip()[:300]}")
-            return shipped
+            raise RuntimeError(
+                f"generator exited {proc.returncode}: {(proc.stderr or '').strip()[-300:]}")
         out_dir = os.path.join(work, "data", "out")
         if not os.path.isdir(out_dir):
             return shipped
@@ -151,8 +187,6 @@ def _generate_into(problem_src, dest_data_dir):
                 continue  # don't clobber a checked-in candidate file of the same name
             shutil.copy2(src, dst)
             shipped.append(name)
-    except (subprocess.SubprocessError, OSError) as exc:
-        _log(f"generator error ({type(exc).__name__}: {exc}); shipping static data only")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return shipped
@@ -177,10 +211,26 @@ def package_problem(problem_id, dest_root):
             continue
         _copy(s, os.path.join(dest, rel.rstrip("/")))
 
-    if man["generator"]:
-        shipped = _generate_into(src, os.path.join(dest, "data"))
+    dest_data = os.path.join(dest, "data")
+    shipped = _ship_compiled(src, dest_data)  # committed compiled dataset — priority
+    if shipped:
+        _log(f"{problem_id}: shipped compiled dataset ({', '.join(shipped)})")
+    elif man["generator"]:
+        shipped = _generate_into(src, dest_data)  # fallback: regenerate on the host
         if shipped:
             _log(f"{problem_id}: generated {', '.join(shipped)}")
+
+    # Fail loud: a committed data/dist/ is a problem's promise that it ships a
+    # candidate dataset. If it delivered nothing, that promise is broken — block
+    # the seed rather than start the candidate in an empty data dir (the pilot
+    # failure mode). A crashing generator already raised above; this also catches
+    # an empty/denylist-only dist/.
+    if os.path.isdir(os.path.join(src, "data", "dist")) and not shipped:
+        raise RuntimeError(
+            f"{problem_id}: data/dist/ is committed but shipped no candidate files "
+            f"(empty, or every entry was denylisted). Refusing to write a seed that "
+            f"would hand the candidate an empty data dir."
+        )
     return {"id": problem_id, "title": man["title"] or problem_id,
             "summary": man["summary"]}
 
@@ -216,10 +266,53 @@ def package_session(session_id, problem_ids, seed_root=None):
     return dest_root
 
 
+# --- deliverability check (admin dry-run) -----------------------------------
+def deliverability_report(problem_ids):
+    """Dry-run the packager for each problem into a throwaway dir and report whether
+    it would actually hand the candidate a dataset. Never writes a real seed. Returns
+    a list of ``{id, ok, files, error}`` — ``ok`` is False if packaging raised (broken
+    generator, empty dist/, ...) or the problem shipped no data files at all. This is
+    what the admin "validate data" button runs before a session goes live."""
+    report = []
+    for pid in problem_ids:
+        entry = {"id": pid, "ok": False, "files": [], "error": None}
+        tmp = tempfile.mkdtemp(prefix="pkg-check-")
+        try:
+            package_problem(pid, tmp)
+            data_dir = os.path.join(tmp, pid, "data")
+            files = []
+            for root, _dirs, names in os.walk(data_dir):
+                for n in names:
+                    if n == "README.md":
+                        continue  # the data dictionary is not the dataset
+                    files.append(os.path.relpath(os.path.join(root, n), data_dir))
+            entry["files"] = sorted(files)
+            entry["ok"] = bool(files)
+            if not files:
+                entry["error"] = "no candidate data files (only the data dictionary)"
+        except Exception as exc:  # broken generator / empty dist / bad manifest
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        report.append(entry)
+    return report
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("--check", "--check-json"):
+        report = deliverability_report(argv[1:])
+        if argv[0] == "--check-json":
+            print(json.dumps(report))  # stdout: machine-readable for the admin panel
+        else:
+            for e in report:
+                mark = "OK  " if e["ok"] else "FAIL"
+                detail = ", ".join(e["files"]) if e["ok"] else (e["error"] or "no data")
+                print(f"[{mark}] {e['id']}: {detail}")
+        return 0 if all(e["ok"] for e in report) else 1
     if len(argv) < 1:
-        print("usage: python -m problems.package <session_id> <problem_id>...", file=sys.stderr)
+        print("usage: python -m problems.package <session_id> <problem_id>...\n"
+              "       python -m problems.package --check <problem_id>...", file=sys.stderr)
         return 2
     session_id, problem_ids = argv[0], argv[1:]
     dest = package_session(session_id, problem_ids)

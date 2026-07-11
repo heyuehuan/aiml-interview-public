@@ -466,15 +466,51 @@ def _visibility_panel(all_problems):
             f'<button class="{cls} secondary" type="submit" style="margin-top:0">{label}</button>'
             f'</form></td></tr>')
     return f"""<div class="card wide" style="margin-bottom:1.5rem">
-  <h2 style="margin-top:0;font-size:1.1rem">Problems — visibility</h2>
-  <p class="muted" style="margin:.2rem 0 .8rem">Hidden problems are not offered when creating a session.</p>
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h2 style="margin:0;font-size:1.1rem">Problems — visibility</h2>
+    <form class="inline" method="post" action="/admin/problems/validate-data">
+      <button class="secondary" type="submit" style="margin-top:0">Validate data deliverability</button>
+    </form>
+  </div>
+  <p class="muted" style="margin:.2rem 0 .8rem">Hidden problems are not offered when creating a session.
+    &ldquo;Validate data&rdquo; dry-runs the packager for every problem to confirm each would ship a candidate dataset.</p>
   <table><thead><tr><th>Title</th><th>ID</th><th>Status</th><th></th></tr></thead>
   <tbody>{rows}</tbody></table>
 </div>"""
 
 
+def _deliverability_panel(report):
+    """Result of the "Validate data deliverability" dry-run: per-problem OK/FAIL and
+    the candidate files each would ship (or the reason it would not)."""
+    if not report:
+        return ""
+    if report.get("error") and not report.get("problems"):
+        return (f'<div class="card wide" style="margin-bottom:1.5rem">'
+                f'<h2 style="margin-top:0;font-size:1.1rem">Data deliverability</h2>'
+                f'<div class="err">could not run the check — {esc(report["error"])}</div></div>')
+    rows = ""
+    for p in report["problems"]:
+        if p["ok"]:
+            pill = '<span class="pill state-active">deliverable</span>'
+            detail = f'<span class="mono muted">{esc(", ".join(p["files"]))}</span>'
+        else:
+            pill = '<span class="pill state-reset">missing</span>'
+            detail = f'<span class="err">{esc(p["error"] or "no candidate data")}</span>'
+        rows += (f'<tr><td class="mono">{esc(p["id"])}</td>'
+                 f'<td>{pill}</td><td>{detail}</td></tr>')
+    banner = ('<div class="ok">All problems would ship a candidate dataset.</div>'
+              if report["ok"] else
+              '<div class="err">Some problems would start the candidate with missing data — fix before activating.</div>')
+    return f"""<div class="card wide" style="margin-bottom:1.5rem">
+  <h2 style="margin-top:0;font-size:1.1rem">Data deliverability</h2>
+  {banner}
+  <table><thead><tr><th>Problem</th><th>Status</th><th>Would ship</th></tr></thead>
+  <tbody>{rows}</tbody></table>
+</div>"""
+
+
 def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test=None,
-                    models_info=None, all_problems=None):
+                    models_info=None, all_problems=None, deliver_report=None):
     note = f'<div class="ok">{esc(notice)}</div>' if notice else ""
     rows = "".join(
         f"""<tr>
@@ -503,6 +539,7 @@ def admin_dashboard(admin, sessions, problems, notice=None, llm_key="", llm_test
     <button type="submit">Create session</button>
   </form>
 </div>
+{_deliverability_panel(deliver_report)}
 {_visibility_panel(all_problems)}"""
     return page("Admin", body)
 

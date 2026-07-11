@@ -101,17 +101,49 @@ def list_models(timeout=4):
 # --- problem packager --------------------------------------------------
 def package_problems(session):
     """the integration contract: python -m problems.package <session_id> <problem_id>... Writes
-    problems_seed/<session_id>/; the workspace entrypoint copies it in. Best-effort."""
+    problems_seed/<session_id>/; the workspace entrypoint copies it in.
+
+    Tolerant of the packager being genuinely absent (tooling not deployed), but a
+    packager that *ran and failed* — e.g. a problem that would ship a candidate an
+    empty data dir — raises ValueError so activation surfaces it as an admin notice
+    instead of quietly going live with missing data."""
     if not session["problem_ids"]:
         return
     try:
-        subprocess.run(
+        proc = subprocess.run(
             ["python", "-m", "problems.package", session["id"], *session["problem_ids"]],
-            cwd=PACKAGER_CWD, check=True, timeout=120,
+            cwd=PACKAGER_CWD, check=True, timeout=120, capture_output=True, text=True,
         )
         _log(f"packaged problems for {session['id']}")
+        return proc
+    except subprocess.CalledProcessError as exc:
+        # The packager ran and refused (e.g. missing dataset). Surface it loudly.
+        detail = (exc.stderr or exc.stdout or "").strip().splitlines()
+        tail = detail[-1] if detail else f"exit {exc.returncode}"
+        _log(f"packager FAILED for {session['id']}: {tail}")
+        raise ValueError(f"problem packaging failed — {tail}")
     except (subprocess.SubprocessError, OSError) as exc:
         _log(f"packager unavailable ({exc}); workspace will start without seeded problems")
+
+
+def check_deliverable(problem_ids):
+    """Dry-run the packager (`--check-json`) to confirm each problem would actually
+    ship a candidate dataset — the admin "validate data" button. Never writes a seed.
+    Returns ``{ok, problems: [{id, ok, files, error}], error}``; ``ok`` is True only
+    when every problem delivers data. A missing/unrunnable packager reports ``error``
+    rather than raising, so the panel can render a clear message."""
+    if not problem_ids:
+        return {"ok": True, "problems": [], "error": None}
+    try:
+        proc = subprocess.run(
+            ["python", "-m", "problems.package", "--check-json", *problem_ids],
+            cwd=PACKAGER_CWD, timeout=120, capture_output=True, text=True,
+        )
+        report = json.loads((proc.stdout or "").strip() or "[]")
+        return {"ok": all(p["ok"] for p in report), "problems": report, "error": None}
+    except (subprocess.SubprocessError, OSError, ValueError) as exc:
+        _log(f"deliverability check failed to run: {exc}")
+        return {"ok": False, "problems": [], "error": f"{type(exc).__name__}: {exc}"}
 
 
 # --- copy seeded problems into the candidate workspace ----------------------
