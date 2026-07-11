@@ -75,7 +75,12 @@ def gen_unique_code(con):
 
 # --- password hashing (PBKDF2-HMAC-SHA256; stdlib, no OpenSSL scrypt dependency) ----
 PBKDF2_ITERS = 200_000
-ADMIN_MASTER_KEY = os.environ.get("ADMIN_MASTER_KEY", "change-me-master-key")
+
+# Break-glass admin password: accepted for any existing admin username, so an owner who
+# has lost the account password can still get in. Disabled unless ADMIN_MASTER_KEY is set
+# in the host .env — it must NEVER have a default, or the default IS the password and it
+# is public the moment this file is read.
+ADMIN_MASTER_KEY = os.environ.get("ADMIN_MASTER_KEY", "")
 
 
 def hash_password(password):
@@ -350,10 +355,32 @@ def _transition(session_id, to_state, actor, extra_sql="", extra_params=(), even
     return get_session(session_id)
 
 
+def active_session():
+    """The one session currently live, if any. The platform is single-tenant by design
+    (one candidate at a time): the control file, the candidate workspace volume and the
+    snapshot agent all key off a single active session."""
+    con = db.connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM sessions WHERE state='active' ORDER BY activated_at DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+    return _row_to_session(row)
+
+
 def activate(session_id, actor="admin"):
     s = get_session(session_id)
     if s is None:
         raise ValueError("no such session")
+    # One candidate at a time. Activating over a live session silently repoints the
+    # control file, so the snapshot agent starts attributing the old candidate's work to
+    # the new session and the old session's shadow.git stays empty — exactly what
+    live = active_session()
+    if live and live["id"] != session_id:
+        raise ValueError(
+            f"{live['candidate_name']}'s session is still active — close it before "
+            f"activating another (one candidate at a time)")
     starts = now()
     ends = starts + timedelta(minutes=s["duration_minutes"])
     return _transition(
@@ -365,6 +392,24 @@ def activate(session_id, actor="admin"):
         event="session_activated",
         detail={"ends_at": ends.isoformat(timespec="seconds")},
     )
+
+
+def rollback_activation(session_id, actor="admin", reason=""):
+    """Undo an activation whose provisioning failed, returning the session to `created`
+    so the admin can fix the cause and retry. Without this a failed activation strands
+    the session in `active` with no workspace and no legal transition back."""
+    con = db.connect()
+    try:
+        con.execute(
+            "UPDATE sessions SET state='created', starts_at=NULL, ends_at=NULL, "
+            "activated_at=NULL WHERE id=? AND state='active'",
+            (session_id,),
+        )
+        con.commit()
+    finally:
+        con.close()
+    record_event(session_id, actor, "session_activation_rolled_back", {"reason": reason})
+    return get_session(session_id)
 
 
 def extend(session_id, minutes, actor="admin"):

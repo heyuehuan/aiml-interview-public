@@ -256,8 +256,26 @@ def _lifecycle(action):
 
 
 def _activate(req, sid, who):
+    s = model.get_session(sid)
+    if s is None:
+        raise ValueError("no such session")
+    # Cheap guard first, so we don't package a seed for a session that can't go live.
+    live = model.active_session()
+    if live and live["id"] != sid:
+        raise ValueError(
+            f"{live['candidate_name']}'s session is still active — close it before "
+            f"activating another (one candidate at a time)")
+    # Provision in the order that fails safely: package first (this is the step that
+    # refuses when a problem would ship no data), and only then flip the state. A failure
+    # here leaves the session in `created`, so the admin can fix it and hit Activate
+    # again — the old order stranded it in `active` with no workspace and no way back.
+    integrations.preflight_activate(s)
     s = model.activate(sid, actor=who)
-    integrations.on_activate(s)
+    try:
+        integrations.on_activate(s)
+    except Exception as exc:
+        model.rollback_activation(sid, actor=who, reason=str(exc))
+        raise ValueError(f"could not provision the workspace — {exc}")
 
 
 def _seed_workspace(req, sid, who):

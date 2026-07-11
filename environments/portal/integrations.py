@@ -268,9 +268,18 @@ def _atomic_write(path, text):
 
 
 # --- orchestration used by the admin panel ----------------------------------
-def on_activate(session):
-    """Everything that must happen when a session goes live."""
+def preflight_activate(session):
+    """The part of activation that can legitimately FAIL — run it *before* the session
+    state flips to `active`, so a failure leaves the session in `created` and retryable.
+
+    Packaging is the risky step (a problem whose data won't ship makes it raise). It
+    needs nothing from the activation itself, so it is safe to do first."""
     package_problems(session)
+
+
+def on_activate(session):
+    """The part of activation that must happen *after* the state flips — the control file
+    carries `ends_at`, which only exists once the session is active."""
     key = issue_llm_key(session)
     write_control(session, key)
     model.record_event(session["id"], "system", "workspace_provisioned",

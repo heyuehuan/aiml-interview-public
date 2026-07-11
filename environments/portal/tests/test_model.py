@@ -197,3 +197,68 @@ def test_workspace_authz_requires_active_and_terms():
     assert model.is_workspace_authorized(s["id"])
     model.close(s["id"])
     assert not model.is_workspace_authorized(s["id"])   # closed
+
+
+# --- one candidate at a time ----------------------------
+# The platform is single-tenant by construction: one control file, one workspace volume,
+# one snapshot agent. If two sessions were activated concurrently, the second would
+# silently repoint the control file, and the first candidate's shadow.git would stay
+# empty while their work was attributed to the second session.
+def test_only_one_session_can_be_active():
+    first = _new(candidate_name="First")
+    second = _new(candidate_name="Second")
+    model.activate(first["id"])
+    with pytest.raises(ValueError, match="still active"):
+        model.activate(second["id"])
+    assert model.get_session(second["id"])["state"] == "created"   # untouched, retryable
+    assert model.active_session()["id"] == first["id"]
+
+
+def test_next_session_activates_once_the_live_one_closes():
+    first, second = _new(candidate_name="First"), _new(candidate_name="Second")
+    model.activate(first["id"])
+    model.close(first["id"])
+    model.activate(second["id"])                                    # no longer blocked
+    assert model.active_session()["id"] == second["id"]
+
+
+def test_reactivating_the_same_session_is_not_self_blocked():
+    s = _new()
+    model.activate(s["id"])
+    with pytest.raises(ValueError, match="illegal transition"):     # not "still active"
+        model.activate(s["id"])
+
+
+# --- activation rollback --------------------------------
+# Provisioning runs after the state flips (the control file needs `ends_at`). If it
+# fails, the session must fall back to `created` — otherwise it strands in `active` with
+# no workspace and no legal transition back, and the admin cannot retry.
+def test_rollback_activation_restores_a_retryable_session():
+    s = _new()
+    model.activate(s["id"])
+    assert model.get_session(s["id"])["state"] == "active"
+
+    model.rollback_activation(s["id"], reason="packager blew up")
+    back = model.get_session(s["id"])
+    assert back["state"] == "created"
+    assert back["ends_at"] is None and back["activated_at"] is None
+    assert model.active_session() is None       # frees the single-active slot
+
+    model.activate(s["id"])                     # the whole point: retry works
+    assert model.get_session(s["id"])["state"] == "active"
+
+
+def test_rollback_is_recorded_in_the_audit_log():
+    s = _new()
+    model.activate(s["id"])
+    model.rollback_activation(s["id"], reason="boom")
+    with open(model.events_path(s["id"])) as fh:
+        events = [__import__("json").loads(l)["event"] for l in fh]
+    assert "session_activation_rolled_back" in events
+
+
+# --- break-glass admin key must not have a default ------
+def test_admin_master_key_is_disabled_unless_configured():
+    """A default value here IS the admin password, and it is public the moment anyone
+    reads the source. It must be opt-in via the host .env."""
+    assert model.ADMIN_MASTER_KEY == "" or os.environ.get("ADMIN_MASTER_KEY")
