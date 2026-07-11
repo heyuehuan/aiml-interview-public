@@ -79,19 +79,42 @@ if [ "$TOOL" = "code-server" ]; then
   printf '{"query":{"folder":"%s/workspace"}}\n' "$HOME_DIR" > "$USER_DATA/coder.json"
   chown -R "$USER_NAME:$USER_NAME" "$HOME_DIR/.local"
   log "launching code-server as $USER_NAME"
-  exec gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
+  gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
        LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
        OPENAI_BASE_URL="$LLM_BASE_URL" OPENAI_API_KEY="$LLM_API_KEY" \
        code-server --auth none --disable-telemetry \
          --user-data-dir "$USER_DATA" --extensions-dir /opt/cs/extensions \
-         --bind-addr 0.0.0.0:8443 "$HOME_DIR/workspace"
+         --bind-addr 0.0.0.0:8443 "$HOME_DIR/workspace" &
 else
   log "launching JupyterLab as $USER_NAME"
-  exec gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
+  gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
        LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
        OPENAI_BASE_URL="$LLM_BASE_URL" OPENAI_API_KEY="$LLM_API_KEY" \
        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser \
          --ServerApp.base_url=/jupyter --ServerApp.token= --ServerApp.password= \
          --ServerApp.allow_origin='*' --ServerApp.disable_check_xsrf=True \
-         --ServerApp.root_dir="$HOME_DIR/workspace"
+         --ServerApp.root_dir="$HOME_DIR/workspace" &
 fi
+TOOL_PID=$!
+
+# Re-provision on session change. The tool is launched ONCE per container start, baking in
+# this session's OS user, HOME and SESSION_ID — so when the next candidate is activated we
+# must restart, or they inherit the previous candidate's identity and a stale SESSION_ID.
+# Exiting is the restart: compose's `restart: unless-stopped` brings the container back and
+# this script re-reads the control file from the top.
+while :; do
+  sleep 5
+  if ! kill -0 "$TOOL_PID" 2>/dev/null; then
+    log "$TOOL exited; restarting container"
+    wait "$TOOL_PID" || true
+    exit 1
+  fi
+  cur_state="$(field state)"
+  cur_sid="$(field session_id)"
+  if [ "$cur_state" != "active" ] || [ "$cur_sid" != "$SID" ]; then
+    log "session changed ($SID -> ${cur_sid:-none}/$cur_state); stopping $TOOL to re-provision"
+    kill "$TOOL_PID" 2>/dev/null || true
+    wait "$TOOL_PID" 2>/dev/null || true
+    exit 0
+  fi
+done
