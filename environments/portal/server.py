@@ -7,9 +7,14 @@ HTML forms. Shared by portal.py (candidate, :8000) and admin.py (admin, :8001).
 from __future__ import annotations
 
 import json as _json
+import os
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
+
+# Mark cookies Secure by default (prod is fronted by TLS); opt out only for plain-HTTP
+# local dev via COOKIE_SECURE=0 so the cookie still sets over http://localhost.
+_COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") != "0"
 
 
 class Request:
@@ -66,12 +71,15 @@ class Response:
         if content_type is not None:
             self.headers.append(("Content-Type", content_type))
 
-    def set_cookie(self, name, value, *, max_age=None, http_only=True, path="/", same_site="Lax"):
+    def set_cookie(self, name, value, *, max_age=None, http_only=True, path="/",
+                   same_site="Lax", secure=None):
         parts = [f"{name}={value}", f"Path={path}", f"SameSite={same_site}"]
         if max_age is not None:
             parts.append(f"Max-Age={max_age}")
         if http_only:
             parts.append("HttpOnly")
+        if _COOKIE_SECURE if secure is None else secure:
+            parts.append("Secure")
         self.headers.append(("Set-Cookie", "; ".join(parts)))
         return self
 

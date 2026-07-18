@@ -200,6 +200,54 @@ def authenticate_admin(username, password):
     return None
 
 
+def _admin_cred_version(row):
+    """A short credential fingerprint bound into an admin's signed cookie.
+    Digests the stored password hash + cookie_epoch, so a password change (hash
+    changes) or a logout (epoch bumped) makes every previously-issued cookie stop
+    verifying, even before it expires."""
+    material = f"{row['password_hash']}|{row['cookie_epoch']}".encode()
+    return hmac.new(SECRET, material, hashlib.sha256).hexdigest()[:16]
+
+
+def _admin_row(username):
+    con = db.connect()
+    try:
+        return con.execute("SELECT * FROM admins WHERE username=?", (username,)).fetchone()
+    finally:
+        con.close()
+
+
+def sign_admin(username):
+    """Signed admin cookie carrying the credential version."""
+    row = _admin_row(username)
+    if not row:
+        return sign(username)
+    return sign(f"{username}|{_admin_cred_version(row)}")
+
+
+def verify_admin(token):
+    """Resolve an admin cookie to a username only if its credential version still
+    matches — i.e. no password change or logout has happened since it was issued."""
+    value = unsign(token)
+    if value is None or "|" not in value:
+        return None
+    username, ver = value.rsplit("|", 1)
+    row = _admin_row(username)
+    if not row or not hmac.compare_digest(ver, _admin_cred_version(row)):
+        return None
+    return username
+
+
+def bump_cookie_epoch(username):
+    """Invalidate all outstanding cookies for this admin (logout)."""
+    con = db.connect()
+    try:
+        con.execute("UPDATE admins SET cookie_epoch=cookie_epoch+1 WHERE username=?", (username,))
+        con.commit()
+    finally:
+        con.close()
+
+
 def change_password(username, new_password):
     con = db.connect()
     try:
