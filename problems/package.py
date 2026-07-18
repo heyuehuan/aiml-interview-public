@@ -43,6 +43,8 @@ SEED_ROOT = os.environ.get("PROBLEMS_SEED_DIR", "/problems_seed")
 DENY_PARTS = {"solution", "data_raw"}
 DENY_NAMES = {"rubric.md", "generate.py", "sanity_check.md"}
 DENY_SUFFIXES = (".xls", ".xlsx")
+# Filled in by the hardening commit (substring heuristic on every path part).
+DENY_SUBSTRINGS = ()
 
 
 def _log(msg):
@@ -95,12 +97,18 @@ def parse_manifest(path):
 
 
 # --- safe copying -----------------------------------------------------------
-def _denied(rel):
+def _denied(rel, *, suffixes=True):
+    """True if any path part is denylisted. ``suffixes=False`` for curated dataset
+    shipping (dist/ and generated data), where a raw workbook can BE the dataset."""
     parts = [p for p in rel.replace("\\", "/").split("/") if p and p != "."]
     if any(p in DENY_PARTS for p in parts):
         return True
+    if any(s in p.lower() for p in parts for s in DENY_SUBSTRINGS):
+        return True
     name = parts[-1] if parts else ""
-    return name in DENY_NAMES or name.lower().endswith(DENY_SUFFIXES)
+    if name in DENY_NAMES:
+        return True
+    return suffixes and name.lower().endswith(DENY_SUFFIXES)
 
 
 def _safe_src(root, rel):
@@ -113,7 +121,34 @@ def _safe_src(root, rel):
     return src
 
 
-def _copy(src, dst):
+def _assert_tree_safe(path, root, *, suffixes=True, _seen=None):
+    """Refuse to ship anything whose *resolved* target escapes ``root`` or is
+    denylisted. ``copytree`` dereferences symlinks, so a committed symlink inside a
+    whitelisted dir (``starter/notes.py -> ../solution/solution.py``) would otherwise
+    copy the solution into the seed. Every file/dir reachable from ``path`` is
+    checked by realpath (symlinked dirs are descended, loop-safe)."""
+    real_root = os.path.realpath(root)
+    seen = _seen if _seen is not None else set()
+    rp = os.path.realpath(path)
+    if os.path.commonpath([rp, real_root]) != real_root:
+        raise ValueError(f"refusing to ship {path!r}: resolves outside the problem dir")
+    rel = os.path.relpath(rp, real_root)
+    if rel != "." and _denied(rel, suffixes=suffixes):
+        raise ValueError(f"refusing to ship {path!r}: resolves to denylisted {rel!r}")
+    if os.path.isdir(path):
+        if rp in seen:
+            return
+        seen.add(rp)
+        for name in sorted(os.listdir(path)):
+            _assert_tree_safe(os.path.join(path, name), root,
+                              suffixes=suffixes, _seen=seen)
+
+
+def _copy(src, dst, *, root=None, suffixes=True):
+    """Copy a file/tree into the seed. When ``root`` is given, every entry (after
+    symlink resolution) must stay under it and clear the denylist."""
+    if root is not None:
+        _assert_tree_safe(src, root, suffixes=suffixes)
     os.makedirs(os.path.dirname(dst.rstrip("/")) or ".", exist_ok=True)
     if os.path.isdir(src):
         shutil.copytree(src, dst, dirs_exist_ok=True,
@@ -142,12 +177,15 @@ def _ship_compiled(problem_src, dest_data_dir):
         # raw workbook can BE the dataset.
         # The suffix rule still guards candidate_paths, where a mis-authored manifest
         # could reach into un-curated problem files.
-        if name in DENY_PARTS or name in DENY_NAMES:
+        if _denied(name, suffixes=False):
+            _log(f"denylisted dist/ entry not shipped: {name}")
             continue
         dst = os.path.join(dest_data_dir, name)
         if os.path.exists(dst):
             continue  # already provided via candidate_paths
-        _copy(src, dst)
+        # root=problem_src: a symlink under dist/ that resolves into solution/ (or out
+        # of the problem tree) raises instead of shipping the target's content.
+        _copy(src, dst, root=problem_src, suffixes=False)
         shipped.append(name)
     return shipped
 
@@ -186,6 +224,9 @@ def _generate_into(problem_src, dest_data_dir):
             src = os.path.join(out_dir, name)
             if os.path.isdir(src):
                 continue  # skip generated/ (interviewer answer keys) and other subdirs
+            # Same gate as dist/: a generator that emits an answer-key-looking file
+            # (or a symlink to one) must not ship it to the candidate.
+            _assert_tree_safe(src, work, suffixes=False)
             dst = os.path.join(dest_data_dir, name)
             if os.path.exists(dst):
                 continue  # don't clobber a checked-in candidate file of the same name
@@ -213,7 +254,7 @@ def package_problem(problem_id, dest_root):
         if not os.path.exists(s):
             _log(f"{problem_id}: candidate_path {rel!r} missing in source; skipped")
             continue
-        _copy(s, os.path.join(dest, rel.rstrip("/")))
+        _copy(s, os.path.join(dest, rel.rstrip("/")), root=src)
 
     dest_data = os.path.join(dest, "data")
     shipped = _ship_compiled(src, dest_data)  # committed compiled dataset — priority
