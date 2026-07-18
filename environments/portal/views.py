@@ -432,8 +432,9 @@ def _llm_panel(llm_key, llm_test, models_info=None):
         models_line = f'<p class="kv muted" style="margin:.6rem 0 0">Models served: unavailable ({why})</p>'
     return f"""<div class="card wide" style="margin-bottom:1.5rem">
   <div class="brandhead">{_SVG_GEMINI}<span>LLM proxy — unillm</span></div>
-  <p class="kv">Shared master key (injected into every workspace as
-    <span class="mono">$OPENAI_API_KEY</span>). Candidates call
+  <p class="kv">Platform master key (server-side only — never enters a workspace).
+    Each session gets its own <span class="mono">$OPENAI_API_KEY</span>, minted at
+    activation and revoked at close. Candidates call
     <span class="mono">http://localhost:8081/v1</span> · Gemini only.</p>
   {models_line}
   <p class="kv" style="margin:.6rem 0 0">Master key:

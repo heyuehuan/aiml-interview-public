@@ -3,8 +3,13 @@ Authentication module for UniLLM
 
 Uses environment variable UNILLM_API_KEYS to store allowed API keys.
 Format: comma-separated list of keys, e.g., "sk-key1,sk-key2,sk-key3"
+
+Additionally accepts the per-session candidate key the portal publishes in the control
+file — valid only while that file names an active
+session, so clearing the file at session close/reset revokes it.
 """
 
+import json
 import os
 from typing import Optional
 from fastapi import HTTPException, Request, Security, status
@@ -18,11 +23,28 @@ from unillm.types import UserAPIKeyAuth
 security = HTTPBearer(auto_error=False)
 
 
+def _session_key() -> Optional[str]:
+    """The per-session candidate key from the portal's control file, if a session is
+    active. Read per request so revocation (clear_control at close/reset) takes
+    effect immediately; any read/parse problem simply means 'no session key'."""
+    control_file = os.getenv("CONTROL_FILE", "/control/active.json")
+    try:
+        with open(control_file, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if doc.get("state") != "active":
+        return None
+    key = doc.get("llm_api_key")
+    return key if isinstance(key, str) and key else None
+
+
 def get_allowed_keys() -> set:
     """
-    Get the set of allowed API keys from environment variables.
-  
-    Supports both UNILLM_API_KEYS (comma-separated list) and 
+    Get the set of allowed API keys from environment variables,
+    plus the per-session candidate key from the control file (if any).
+
+    Supports both UNILLM_API_KEYS (comma-separated list) and
     UNILLM_MASTER_KEY (single master key).
     """
     allowed_keys = set()
@@ -42,7 +64,12 @@ def get_allowed_keys() -> set:
     if api_keys_str:
         keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
         allowed_keys.update(keys)
-  
+
+    # Per-session candidate key: live only while a session is active.
+    session_key = _session_key()
+    if session_key:
+        allowed_keys.add(session_key)
+
     return allowed_keys
 
 

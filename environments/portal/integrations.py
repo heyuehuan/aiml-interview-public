@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import stat
 import subprocess
@@ -40,15 +41,20 @@ def _log(msg):
 
 # --- LLM key -----------------------------------------------------------
 def issue_llm_key(session):
-    """One shared unillm master key. unillm has no
-    per-session key API in this MVP, so every workspace gets the same key; model
-    control is enforced by unillm's config allowlist, not the key."""
-    return UNILLM_MASTER_KEY
+    """Mint the per-session candidate key (the integration contract; supersedes the
+    shared-master-key model). It reaches the workspace via the control file; unillm
+    accepts it only while the control file names this session active. The platform
+    master key stays server-side (admin health check, playground) and never enters
+    the candidate env."""
+    return "sk-cand-" + secrets.token_hex(16)
 
 
 def revoke_llm_key(session_id):
-    """No-op: the shared master key is not per-session, so there is nothing to revoke.
-    Access is cut by clearing the control file (workspace tools lock, env is gone)."""
+    """Revocation is effected by clear_control(): unillm validates the candidate key
+    against the live control file, so once the file no longer names this session
+    active the key stops working — including for a candidate who saved it. Extending
+    a session leaves the control file (and so the key) intact; re-activation simply
+    mints a fresh key."""
     return
 
 
