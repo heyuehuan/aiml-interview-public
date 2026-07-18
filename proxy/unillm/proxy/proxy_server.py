@@ -236,19 +236,23 @@ async def _read_request_body(request: Request) -> Dict[str, Any]:
 
 
 def _get_handler_for_model(model_name: str) -> VertexAIHandler:
-    """Get the appropriate handler for a model"""
+    """Get the handler for an allowlisted model; 400 on anything else.
+
+    The config's model_list IS the model gate: without this check a
+    caller could reach any publishers/google/models/* in the SA's project by naming
+    it. No configured models ⇒ every request is rejected (fail closed)."""
     if model_name in vertex_handlers:
         handler = vertex_handlers[model_name]
         verbose_proxy_logger.debug(f"Using cached handler for model '{model_name}': {type(handler).__name__}")
         return handler
-  
+
     # Try to find a matching model configuration
     model_config = proxy_config.get_model_config(model_name)
     if model_config:
         params = model_config.get("litellm_params", model_config.get("unillm_params", {}))
         model_type = params.get("model_type", MODEL_TYPE_VERTEX_AI)
         verbose_proxy_logger.debug(f"Model '{model_name}' has model_type: {model_type}")
-      
+
         # Route to appropriate handler based on model_type
         if model_type == MODEL_TYPE_VERTEX_AI_KMS:
             return VertexAIKMSHandler(
@@ -261,9 +265,14 @@ def _get_handler_for_model(model_name: str) -> VertexAIHandler:
                 project=params.get("project"),
                 location=params.get("location", "us-central1"),
             )
-  
-    # Return default handler
-    return VertexAIHandler()
+
+    # Not in the allowlist: reject rather than fall through to a default handler
+    # that would forward an arbitrary model name upstream.
+    verbose_proxy_logger.warning(f"Rejected request for non-allowlisted model '{model_name}'")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Model '{model_name}' is not available. Use /v1/models to list the served models.",
+    )
 
 
 def _get_actual_model_name(model_name: str) -> str:
