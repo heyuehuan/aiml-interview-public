@@ -139,22 +139,30 @@ async def lifespan(app: FastAPI):
         await handler.close()
 
 
+# the interactive API docs expose the full schema of an SA-backed proxy that sits
+# on the candidate net. Off by default; opt in with UNILLM_ENABLE_DOCS=1 for local dev.
+_enable_docs = os.getenv("UNILLM_ENABLE_DOCS", "0") == "1"
+
 # Create FastAPI app
 app = FastAPI(
     title="UniLLM Proxy",
     description="A minimal OpenAI-compatible API proxy for Vertex AI Gemini",
     version=__version__,
     lifespan=lifespan,
-    docs_url="/docs",      # Swagger UI at /docs
-    redoc_url="/redoc",    # ReDoc at /redoc
-    openapi_url="/openapi.json",
+    docs_url="/docs" if _enable_docs else None,
+    redoc_url="/redoc" if _enable_docs else None,
+    openapi_url="/openapi.json" if _enable_docs else None,
 )
 
-# Add CORS middleware
+# CORS: the proxy is called server-side (portal) and via the workspace loopback
+# forwarder with a Bearer key — never with browser cookies — so credentialed CORS is
+# unnecessary and unsafe paired with a wildcard origin. Default to no cross-origin
+# allowance; UNILLM_CORS_ORIGINS (comma-separated) opts specific origins back in.
+_cors_origins = [o.strip() for o in os.getenv("UNILLM_CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -169,9 +177,11 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    """Root endpoint - redirects to docs"""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/docs")
+    """Root endpoint - redirects to docs when they're enabled, else a bare status."""
+    if _enable_docs:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/docs")
+    return {"service": "unillm", "version": __version__}
 
 
 # Model endpoints
