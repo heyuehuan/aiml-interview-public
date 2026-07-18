@@ -12,6 +12,12 @@
 set -euo pipefail
 
 SID="${1:?usage: export_session.sh <session_id>}"
+# sid is interpolated into paths — reject anything that isn't a plain id so a
+# crafted value can't traverse out of data/sessions/ (defense in depth behind the
+# portal's own sid validation).
+case "$SID" in
+  *[!A-Za-z0-9_-]*|"") echo "[export] invalid session id: $SID" >&2; exit 2;;
+esac
 DATA_DIR="${DATA_DIR:-/data}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 
