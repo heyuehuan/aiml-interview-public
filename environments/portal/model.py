@@ -106,6 +106,11 @@ def gen_unique_code(con):
 # --- password hashing (PBKDF2-HMAC-SHA256; stdlib, no OpenSSL scrypt dependency) ----
 PBKDF2_ITERS = 200_000
 
+# A pre-computed valid hash of a random password, used to spend the same PBKDF2 time
+# on an unknown username as on a real one — so login latency doesn't reveal which
+# usernames exist.
+_DUMMY_HASH = None
+
 # Break-glass admin password: accepted for any existing admin username, so an owner who
 # has lost the account password can still get in. Disabled unless ADMIN_MASTER_KEY is set
 # in the host .env — it must NEVER have a default, or the default IS the password and it
@@ -195,7 +200,14 @@ def authenticate_admin(username, password):
         row = con.execute("SELECT * FROM admins WHERE username=?", (username,)).fetchone()
     finally:
         con.close()
-    if row and verify_password(password, row["password_hash"]):
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password(secrets.token_hex(16))
+    # Always run one PBKDF2 verify, even for an unknown username, so login timing
+    # doesn't distinguish "no such user" from "wrong password".
+    stored = row["password_hash"] if row else _DUMMY_HASH
+    ok = verify_password(password, stored)
+    if row and ok:
         return row["username"]
     return None
 
