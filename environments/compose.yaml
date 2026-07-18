@@ -57,7 +57,10 @@ services:
       # No insecure default: .env must set this (dev value lives in .env.example).
       PORTAL_SECRET: ${PORTAL_SECRET:?PORTAL_SECRET must be set in .env — see .env.example}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # No admin/admin default: the app refuses to boot outside APP_ENV=dev unless a
+      # real credential is configured (ADMIN_PASSWORD_HASH preferred in prod).
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
     volumes:
       - ./portal:/app:ro
       - ../problems:/srv/problems:ro

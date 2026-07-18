@@ -53,6 +53,16 @@ def assert_boot_config():
     problems = []
     if SECRET in (b"", DEFAULT_SECRET.encode()):
         problems.append("PORTAL_SECRET is unset or still the public dev default")
+    # admin/admin is baked into every checkout of this repo. Require a real
+    # credential at provision time — either a hash, or a non-default password of
+    # useful length. (seed_admins is INSERT OR IGNORE, so an already-seeded DB keeps
+    # its existing account; this guards the first boot that creates it.)
+    pw = os.environ.get("ADMIN_PASSWORD", "")
+    pw_hash = os.environ.get("ADMIN_PASSWORD_HASH", "")
+    if not pw_hash and (not pw or pw == "admin" or len(pw) < 8):
+        problems.append(
+            "no usable admin credential: set ADMIN_PASSWORD_HASH, or an "
+            "ADMIN_PASSWORD that is not 'admin' and is >= 8 characters")
     if problems:
         raise SystemExit(
             f"refusing to start (APP_ENV={APP_ENV}): " + "; ".join(problems)
