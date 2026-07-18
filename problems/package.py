@@ -43,8 +43,12 @@ SEED_ROOT = os.environ.get("PROBLEMS_SEED_DIR", "/problems_seed")
 DENY_PARTS = {"solution", "data_raw"}
 DENY_NAMES = {"rubric.md", "generate.py", "sanity_check.md"}
 DENY_SUFFIXES = (".xls", ".xlsx")
-# Filled in by the hardening commit (substring heuristic on every path part).
-DENY_SUBSTRINGS = ()
+# Heuristic backstop: any path part containing one of these never ships, whatever
+# path it arrives by (a mis-placed answer_key.csv in dist/, a generator that emits
+# grading notes, ...). Deliberately NOT including bare "label"/"key": labels.csv is
+# documented candidate training data and "key" alone is
+# too generic — "answer" already catches answer_key.*.
+DENY_SUBSTRINGS = ("answer", "solution", "rubric", "grading", "sanity_check")
 
 
 def _log(msg):
@@ -204,8 +208,14 @@ def _generate_into(problem_src, dest_data_dir):
     tmp = tempfile.mkdtemp(prefix="pkg-")
     try:
         work = os.path.join(tmp, "p")
+        # The generator gets a working copy WITHOUT the answer material: it has no
+        # business reading solution/ or the rubric, and excluding them here means a
+        # buggy/malicious generator can't re-emit them as candidate data.
+        # data_raw/ stays — generators legitimately compile candidate data from it.
         shutil.copytree(problem_src, work,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc",
+                                                      "solution", "rubric.md",
+                                                      "sanity_check.md"))
         try:
             proc = subprocess.run(
                 [sys.executable, "data/generate.py"],

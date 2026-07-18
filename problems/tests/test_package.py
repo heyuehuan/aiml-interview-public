@@ -67,3 +67,45 @@ def test_dist_symlink_to_solution_is_refused(tmp_path, monkeypatch):
     monkeypatch.setattr(package, "PROBLEMS_ROOT", str(root))
     with pytest.raises(ValueError, match="denylisted"):
         package.package_problem("p-001", str(dest))
+
+
+def test_dist_answer_key_by_name_is_not_shipped(tmp_path, monkeypatch):
+    """a mis-placed answer key in dist/ must not reach the candidate, even
+    though it isn't a DENY_NAMES exact match."""
+    root, dest = tmp_path / "problems", tmp_path / "seed"
+    src = _mk_problem(root)
+    (src / "data" / "dist" / "answer_key.csv").write_text("id,label\n1,anomaly\n")
+    monkeypatch.setattr(package, "PROBLEMS_ROOT", str(root))
+    package.package_problem("p-001", str(dest))
+    shipped = os.listdir(dest / "p-001" / "data")
+    assert "answer_key.csv" not in shipped
+    assert "input.csv" in shipped  # the real dataset still ships
+
+
+def test_generator_cannot_read_solution(tmp_path, monkeypatch):
+    """the generator's working copy excludes solution/, so a generator that
+    tries to copy the answer key into data/out/ finds nothing to copy."""
+    root, dest = tmp_path / "problems", tmp_path / "gen-seed"
+    pid = "g-001"
+    src = root / pid
+    (src / "solution").mkdir(parents=True)
+    (src / "data").mkdir(parents=True)
+    (src / "problem.md").write_text("# G\n")
+    (src / "problem.yaml").write_text(
+        "id: %s\ntitle: Gen problem\ncandidate_paths:\n  - problem.md\n"
+        "data:\n  generator: data/generate.py\n" % pid
+    )
+    (src / "solution" / "key.txt").write_text("THE ANSWER\n")
+    (src / "data" / "generate.py").write_text(
+        "import os, shutil\n"
+        "os.makedirs('data/out', exist_ok=True)\n"
+        "open('data/out/dataset.csv','w').write('x\\n1\\n')\n"
+        "# a hostile generator trying to exfiltrate the solution:\n"
+        "if os.path.exists('solution/key.txt'):\n"
+        "    shutil.copy('solution/key.txt', 'data/out/leaked.txt')\n"
+    )
+    monkeypatch.setattr(package, "PROBLEMS_ROOT", str(root))
+    package.package_problem(pid, str(dest))
+    shipped = os.listdir(dest / pid / "data")
+    assert "dataset.csv" in shipped
+    assert "leaked.txt" not in shipped
