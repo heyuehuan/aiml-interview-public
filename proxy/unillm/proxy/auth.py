@@ -9,6 +9,7 @@ file — valid only while that file names an active
 session, so clearing the file at session close/reset revokes it.
 """
 
+import hmac
 import json
 import os
 from typing import Optional
@@ -116,13 +117,15 @@ async def user_api_key_auth(
             detail="Proxy has no API keys configured; refusing to serve.",
         )
   
-    # Validate the API key
-    if api_key not in allowed_keys:
-        verbose_proxy_logger.warning(f"Invalid API key provided: {api_key[:8]}...")
+    # Validate the API key. Constant-time compare against each allowed key so a
+    # timing side-channel can't confirm a partial guess; don't log any prefix
+    # of a rejected key at WARNING (default level).
+    if not any(hmac.compare_digest(api_key, k) for k in allowed_keys):
+        verbose_proxy_logger.warning("Invalid API key provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
         )
-  
-    verbose_proxy_logger.debug(f"API key authenticated: {api_key[:8]}...")
+
+    verbose_proxy_logger.debug("API key authenticated")
     return UserAPIKeyAuth(api_key=api_key, valid=True)
