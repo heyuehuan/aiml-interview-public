@@ -7,7 +7,9 @@ lists, tables, fenced + inline code, bold/italic, links + autolinks, horizontal 
 and blockquotes. It is intentionally small and forgiving rather than CommonMark-complete.
 
 Everything is HTML-escaped; the only markup emitted is the tags this module produces,
-so rendering untrusted-but-authored problem text can't inject script.
+and link hrefs are scheme-allowlisted (http/https/mailto, or scheme-less relative) —
+so rendering untrusted-but-authored problem text can't inject script, including via
+`javascript:` link URLs.
 """
 from __future__ import annotations
 
@@ -153,6 +155,18 @@ def _list(lines, i, out) -> int:
 
 
 # --- inline ----------------------------------------------------------------
+_SAFE_SCHEME = re.compile(r"^(?:https?|mailto):", re.IGNORECASE)
+
+
+def _safe_href(url: str) -> bool:
+    """Allow http(s)/mailto absolute URLs and scheme-less relative/fragment URLs;
+    refuse anything else (javascript:, data:, vbscript:, ...)."""
+    if _SAFE_SCHEME.match(url):
+        return True
+    head = re.split(r"[/?#]", url, maxsplit=1)[0]
+    return ":" not in head
+
+
 def _inline(text: str) -> str:
     tokens: list[str] = []
 
@@ -168,9 +182,11 @@ def _inline(text: str) -> str:
     text = re.sub(r"<((?:https?|mailto):[^>\s]+)>",
                   lambda m: stash(f'<a href="{html.escape(m.group(1))}" target="_blank" rel="noopener">{html.escape(m.group(1))}</a>'),
                   text)
-    # 4. [text](url) links
+    # 4. [text](url) links — unsafe schemes render as literal text, not a link
     text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)",
-                  lambda m: stash(f'<a href="{html.escape(m.group(2))}" target="_blank" rel="noopener">{html.escape(m.group(1))}</a>'),
+                  lambda m: stash(
+                      f'<a href="{html.escape(m.group(2))}" target="_blank" rel="noopener">{html.escape(m.group(1))}</a>'
+                      if _safe_href(m.group(2)) else html.escape(m.group(0))),
                   text)
     # 5. escape everything else
     text = html.escape(text)
