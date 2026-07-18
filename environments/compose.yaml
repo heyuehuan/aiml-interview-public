@@ -36,6 +36,9 @@ services:
     command: ["python", "/app/portal.py"]
     environment: &portal_env
       PORT: "8000"
+      # dev|prod (default prod): outside dev the services refuse to boot on the public
+      # dev secrets below.
+      APP_ENV: ${APP_ENV:-prod}
       PLATFORM_DB: /data/platform.db
       DATA_DIR: /data
       CONTROL_FILE: /control/active.json
@@ -51,7 +54,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:8081/v1}
       # export/reset scripts (mounted at /srv/scripts below).
       SCRIPTS_DIR: /srv/scripts
-      PORTAL_SECRET: ${PORTAL_SECRET:-dev-insecure-secret-change-me}
+      # No insecure default: .env must set this (dev value lives in .env.example).
+      PORTAL_SECRET: ${PORTAL_SECRET:?PORTAL_SECRET must be set in .env — see .env.example}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     volumes:
