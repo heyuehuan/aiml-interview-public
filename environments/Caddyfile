@@ -15,13 +15,22 @@
 
 	# Admin panel. Auth is enforced by the app (admin cookie).
 	# Match both the bare /admin and everything under it.
+	# Guard: candidate containers (compose pins them into 172.29.0.128/25) must not
+	# reach the platform front door — a shell in the workspace could otherwise curl the
+	# admin panel / portal API through this proxy. Browser traffic arrives via the host
+	# NAT gateway (x.x.x.1, outside that range) and is unaffected.
 	@admin path /admin /admin/*
 	handle @admin {
+		@admin_from_candidate remote_ip 172.29.0.128/25
+		respond @admin_from_candidate "forbidden" 403
 		reverse_proxy admin:8001
 	}
 
-	# Portal / session API. Not session-gated — /api/authz lives here.
+	# Portal / session API. Not session-gated — /api/authz lives here (caddy calls
+	# it server-side via forward_auth below, so the guard does not affect it).
 	handle /api/* {
+		@api_from_candidate remote_ip 172.29.0.128/25
+		respond @api_from_candidate "forbidden" 403
 		reverse_proxy portal:8000
 	}
 
