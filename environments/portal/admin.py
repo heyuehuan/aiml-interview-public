@@ -9,6 +9,7 @@ events.jsonl via model.*.
 from __future__ import annotations
 
 import os
+import re
 
 import db
 import integrations
@@ -29,6 +30,16 @@ def _admin(req):
 def _require(req):
     who = _admin(req)
     return who, (None if who else Response.redirect("/admin"))
+
+
+# Session ids are server-generated uuids. Anything else arriving in the path is
+# hostile: the router unquotes segments AFTER splitting, so "..%2f..%2f" decodes into
+# a traversal once it hits os.path.join. Reject before any filesystem use.
+_SID_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _bad_sid(sid):
+    return not _SID_OK.fullmatch(sid or "")
 
 
 @router.route("GET", "/healthz")
@@ -235,6 +246,8 @@ def delete(req, sid):
     who, redirect = _require(req)
     if redirect:
         return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
     try:
         model.delete_session(sid, actor=who)
     except ValueError as exc:
@@ -247,6 +260,8 @@ def _lifecycle(action):
         who, redirect = _require(req)
         if redirect:
             return redirect
+        if _bad_sid(sid):
+            return Response.not_found()
         try:
             action(req, sid, who)
             return Response.redirect(f"/admin/sessions/{sid}")
@@ -323,6 +338,8 @@ def download(req, sid):
     who, redirect = _require(req)
     if redirect:
         return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
     export_dir = os.path.join(model.DATA_DIR, "sessions", sid, "export")
     bundle = None
     if os.path.isdir(export_dir):
