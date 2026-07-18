@@ -182,6 +182,9 @@ services:
       CONTROL_FILE: /control/active.json
       WORKSPACE_DIR: /data/workspace
       PROBLEMS_SEED_DIR: /problems_seed
+      # set to the interview origin in prod so an unrelated site can't drive the
+      # candidate's notebook; '*' is the dev default (candidate reaches it same-origin).
+      WORKSPACE_ALLOW_ORIGIN: ${WORKSPACE_ALLOW_ORIGIN:-*}
     volumes:
       - workspace:/data/workspace
       - control:/control:ro

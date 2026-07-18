@@ -87,12 +87,21 @@ if [ "$TOOL" = "code-server" ]; then
          --bind-addr 0.0.0.0:8443 "$HOME_DIR/workspace" &
 else
   log "launching JupyterLab as $USER_NAME"
+  # allow_origin defaults to '*' for local dev (candidate reaches Jupyter through
+  # caddy same-origin). In a real deployment set WORKSPACE_ALLOW_ORIGIN to the interview
+  # origin (e.g. https://interview.example.com) so an unrelated site the candidate
+  # visits can't drive their notebook. Auth still rests on caddy forward_auth (empty
+  # token by design — the session gate lives at the proxy), and xsrf stays disabled
+  # because the /jupyter prefix rewrite breaks Jupyter's built-in xsrf cookie check;
+  # the origin restriction is what backstops it. This is candidate-attacks-self only —
+  # one candidate at a time, no cross-tenant reach.
+  ALLOW_ORIGIN="${WORKSPACE_ALLOW_ORIGIN:-*}"
   gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
        LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
        OPENAI_BASE_URL="$LLM_BASE_URL" OPENAI_API_KEY="$LLM_API_KEY" \
        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser \
          --ServerApp.base_url=/jupyter --ServerApp.token= --ServerApp.password= \
-         --ServerApp.allow_origin='*' --ServerApp.disable_check_xsrf=True \
+         --ServerApp.allow_origin="$ALLOW_ORIGIN" --ServerApp.disable_check_xsrf=True \
          --ServerApp.root_dir="$HOME_DIR/workspace" &
 fi
 TOOL_PID=$!
