@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS admins (
     id            TEXT PRIMARY KEY,
     username      TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+    -- Bumped on logout so outstanding signed cookies stop verifying. A password
+    -- change invalidates them too, because the cookie version also digests the hash.
+    cookie_epoch  INTEGER NOT NULL DEFAULT 0
 );
 
 -- Per-session, per-problem moderation state: how many subproblems the admin has
@@ -65,6 +68,10 @@ def init():
     con = connect()
     try:
         con.executescript(_SCHEMA)
+        # Add cookie_epoch to admins tables created before cookie epochs.
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(admins)").fetchall()}
+        if "cookie_epoch" not in cols:
+            con.execute("ALTER TABLE admins ADD COLUMN cookie_epoch INTEGER NOT NULL DEFAULT 0")
         con.commit()
     finally:
         con.close()

@@ -24,7 +24,7 @@ router = Router()
 
 def _admin(req):
     token = req.cookies.get(COOKIE)
-    return model.unsign(token) if token else None
+    return model.verify_admin(token) if token else None
 
 
 def _require(req):
@@ -101,12 +101,17 @@ def login(req):
     if not who:
         return Response.html(views.admin_login(error="Invalid username or password."), status=401)
     resp = Response.redirect("/admin")
-    resp.set_cookie(COOKIE, model.sign(who), max_age=model.COOKIE_MAX_AGE)
+    resp.set_cookie(COOKIE, model.sign_admin(who), max_age=model.COOKIE_MAX_AGE)
     return resp
 
 
 @router.route("POST", "/admin/logout")
 def logout(req):
+    who = _admin(req)
+    if who:
+        # Server-side invalidation: bump the epoch so the just-cleared cookie (and any
+        # copy of it) stops verifying, not just the client-side clear.
+        model.bump_cookie_epoch(who)
     resp = Response.redirect("/admin")
     resp.set_cookie(COOKIE, "", max_age=0)
     return resp
@@ -127,7 +132,11 @@ def change_password(req):
     if new != confirm:
         return _dashboard(who, notice="New passwords do not match.")
     model.change_password(who, new)
-    return _dashboard(who, notice="Password changed successfully.")
+    # The password change invalidated the current cookie's credential version;
+    # re-issue one so the admin who just changed it isn't immediately logged out.
+    resp = _dashboard(who, notice="Password changed successfully.")
+    resp.set_cookie(COOKIE, model.sign_admin(who), max_age=model.COOKIE_MAX_AGE)
+    return resp
 
 
 @router.route("POST", "/admin/sessions")

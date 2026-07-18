@@ -39,6 +39,8 @@ services:
       # dev|prod (default prod): outside dev the services refuse to boot on the public
       # dev secrets below.
       APP_ENV: ${APP_ENV:-prod}
+      # Secure cookies on by default; dev over plain HTTP sets COOKIE_SECURE=0 in .env.
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
       PLATFORM_DB: /data/platform.db
       DATA_DIR: /data
       CONTROL_FILE: /control/active.json
