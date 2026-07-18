@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
 
@@ -76,6 +77,10 @@ class VertexAIHandler:
         host = ("aiplatform.googleapis.com" if self.location == "global"
                 else f"{self.location}-aiplatform.googleapis.com")
         base_url = f"https://{host}/v1"
+        # The model name reaches us from the request body; the proxy allowlists it
+        # upstream, but escape it anyway so `/`, `..`, `?`, `#` can never rewrite the
+        # request path (defense in depth for the model allowlist).
+        model = urllib.parse.quote(model, safe="")
         return f"{base_url}/projects/{self.project}/locations/{self.location}/publishers/google/models/{model}:{endpoint}"
   
     def _convert_messages_to_gemini_format(
