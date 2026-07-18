@@ -19,7 +19,11 @@ from datetime import datetime, timedelta, timezone
 import db
 
 # --- config -----------------------------------------------------------------
-SECRET = os.environ.get("PORTAL_SECRET", "dev-insecure-secret-change-me").encode()
+# APP_ENV selects the profile: "dev" permits the public dev defaults
+# below; anything else (the default) makes assert_boot_config() refuse to start on them.
+APP_ENV = os.environ.get("APP_ENV", "prod").strip().lower()
+DEFAULT_SECRET = "dev-insecure-secret-change-me"
+SECRET = os.environ.get("PORTAL_SECRET", DEFAULT_SECRET).encode()
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 GRACE_MINUTES = int(os.environ.get("CODE_GRACE_MINUTES", "60"))
 COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", str(12 * 3600)))
@@ -37,6 +41,22 @@ TRANSITIONS = {
     "reset": set(),
 }
 LIVE_STATES = {"created", "active"}  # a code can only map to a not-yet-closed session
+
+
+# --- boot checks ------------------------------------------------------------
+def assert_boot_config():
+    """Fail-closed startup checks. Outside APP_ENV=dev,
+    refuse to serve with the public dev cookie secret: anyone who has read this repo
+    can forge an admin cookie with it, so a silent fallback IS the vulnerability."""
+    if APP_ENV == "dev":
+        return
+    problems = []
+    if SECRET in (b"", DEFAULT_SECRET.encode()):
+        problems.append("PORTAL_SECRET is unset or still the public dev default")
+    if problems:
+        raise SystemExit(
+            f"refusing to start (APP_ENV={APP_ENV}): " + "; ".join(problems)
+            + " — set real values in .env, or APP_ENV=dev for local development only")
 
 
 # --- time -------------------------------------------------------------------

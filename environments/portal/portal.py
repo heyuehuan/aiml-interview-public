@@ -177,6 +177,7 @@ def logout(req):
 
 
 def main():
+    model.assert_boot_config()
     db.init()
     model.seed_admins()
     serve(router, int(os.environ.get("PORT", "8000")), name="portal")
