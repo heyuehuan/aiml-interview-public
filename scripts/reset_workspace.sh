@@ -12,6 +12,10 @@
 set -euo pipefail
 
 SID="${1:?usage: reset_workspace.sh <session_id>}"
+# reject a non-id sid before it reaches any path (defense in depth).
+case "$SID" in
+  *[!A-Za-z0-9_-]*|"") echo "[reset] invalid session id: $SID" >&2; exit 2;;
+esac
 DATA_DIR="${DATA_DIR:-/data}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 EXPORT_DIR="$DATA_DIR/sessions/$SID/export"

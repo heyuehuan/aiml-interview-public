@@ -33,6 +33,11 @@ while true; do
   if [ -f "$CONTROL_FILE" ]; then
     state="$(json_str state)"
     sid="$(json_str session_id)"
+    # sid comes from the control file, but validate it
+    # anyway before building shadow.git paths — a malformed value is skipped, not run.
+    case "$sid" in
+      *[!A-Za-z0-9_-]*) log "skipping malformed session id: $sid"; sid="";;
+    esac
     if [ "$state" = "active" ] && [ -n "$sid" ] && [ -d "$WORKSPACE_DIR" ]; then
       shadow="$DATA_DIR/sessions/$sid/shadow.git"
       if [ ! -d "$shadow" ]; then
