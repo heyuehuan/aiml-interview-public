@@ -32,6 +32,27 @@ def test_session_key_revoked_when_control_cleared(tmp_path, monkeypatch):
     assert auth.get_allowed_keys() == {"sk-master"}
 
 
+def test_no_configured_keys_fails_closed(tmp_path, monkeypatch):
+    """an empty key config must refuse requests, not allow-all."""
+    import asyncio
+
+    import pytest
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    for var in ("UNILLM_MASTER_KEY", "LITELLM_MASTER_KEY", "UNILLM_API_KEYS"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("CONTROL_FILE", str(tmp_path / "absent.json"))
+
+    class _Req:
+        headers = {}
+
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="sk-anything")
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(auth.user_api_key_auth(_Req(), creds))
+    assert exc.value.status_code == 503
+
+
 def test_missing_or_broken_control_file_adds_nothing(tmp_path, monkeypatch):
     monkeypatch.setenv("CONTROL_FILE", str(tmp_path / "nope.json"))
     monkeypatch.setenv("UNILLM_MASTER_KEY", "sk-master")

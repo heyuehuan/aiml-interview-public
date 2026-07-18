@@ -105,10 +105,16 @@ async def user_api_key_auth(
     # Get allowed keys
     allowed_keys = get_allowed_keys()
   
-    # If no keys are configured, allow all requests (development mode)
+    # Fail closed: a blank/typo'd UNILLM_MASTER_KEY must not silently open the
+    # SA-backed proxy to anyone who can reach it. No configured keys => refuse.
     if not allowed_keys:
-        verbose_proxy_logger.warning("No API keys configured - allowing all requests (development mode)")
-        return UserAPIKeyAuth(api_key=api_key, valid=True)
+        verbose_proxy_logger.error(
+            "No API keys configured (UNILLM_MASTER_KEY / UNILLM_API_KEYS empty) - refusing all requests"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Proxy has no API keys configured; refusing to serve.",
+        )
   
     # Validate the API key
     if api_key not in allowed_keys:
