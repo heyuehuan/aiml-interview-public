@@ -27,6 +27,9 @@ your-gcp-project-*.json
 # (auditable candidate work lives here as candidate_data/<session>/)
 candidate_data/
 
+# retrieved credentials — host-local secrets, NEVER committed (CLAUDE.md hard rule)
+cred/
+
 # tooling
 .DS_Store
 .idea/
