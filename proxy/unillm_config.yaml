@@ -26,5 +26,6 @@ model_list:
       project: your-gcp-project
       location: global
 
-general_settings:
-  port: 8081
+# NOTE: the proxy binds the port from the CLI/compose (`--port`, default 4000; compose
+# publishes 8081), NOT from this file — a `general_settings.port` here is never read
+#, so it was removed to avoid implying otherwise.
