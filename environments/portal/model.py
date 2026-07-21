@@ -188,19 +188,10 @@ def seed_admins():
 
 
 def authenticate_admin(username, password):
+    row = _admin_row(username)
     if ADMIN_MASTER_KEY and hmac.compare_digest(password, ADMIN_MASTER_KEY):
         # Master key bypasses per-account password; still requires a valid username.
-        con = db.connect()
-        try:
-            row = con.execute("SELECT * FROM admins WHERE username=?", (username,)).fetchone()
-        finally:
-            con.close()
         return row["username"] if row else None
-    con = db.connect()
-    try:
-        row = con.execute("SELECT * FROM admins WHERE username=?", (username,)).fetchone()
-    finally:
-        con.close()
     global _DUMMY_HASH
     if _DUMMY_HASH is None:
         _DUMMY_HASH = hash_password(secrets.token_hex(16))
@@ -267,18 +258,6 @@ def change_password(username, new_password):
         con.execute(
             "UPDATE admins SET password_hash=? WHERE username=?",
             (hash_password(new_password), username),
-        )
-        con.commit()
-    finally:
-        con.close()
-
-
-def create_admin(username, password):
-    con = db.connect()
-    try:
-        con.execute(
-            "INSERT INTO admins (id, username, password_hash, created_at) VALUES (?,?,?,?)",
-            (str(uuid.uuid4()), username, hash_password(password), now_iso()),
         )
         con.commit()
     finally:

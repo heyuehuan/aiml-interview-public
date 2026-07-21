@@ -660,12 +660,24 @@ def _confirm_modal():
 </script>"""
 
 
-def _mod_btn(sid, pid, target, label, cls="secondary", confirm=None):
+def _confirm_attrs(cls, confirm):
+    """The class + data-confirm attributes shared by every confirm-through-the-modal
+    button (a `js-confirm` class routes the submit through the overlay modal, not
+    native confirm()). Returns ``(class_attr, extra_attrs)``."""
     cls_attr = f"{cls} js-confirm".strip() if confirm else cls
     extra = f' data-confirm="{esc(confirm)}"' if confirm else ""
-    return (f'<form class="inline" method="post" action="/admin/sessions/{esc(sid)}/moderate/{esc(pid)}">'
-            f'<input type="hidden" name="released" value="{int(target)}">'
-            f'<button class="{cls_attr}" style="margin-top:0"{extra} type="submit">{esc(label)}</button></form>')
+    return cls_attr, extra
+
+
+def _post_form(action, inner):
+    return f'<form class="inline" method="post" action="{action}">{inner}</form>'
+
+
+def _mod_btn(sid, pid, target, label, cls="secondary", confirm=None):
+    cls_attr, extra = _confirm_attrs(cls, confirm)
+    inner = (f'<input type="hidden" name="released" value="{int(target)}">'
+             f'<button class="{cls_attr}" style="margin-top:0"{extra} type="submit">{esc(label)}</button>')
+    return _post_form(f"/admin/sessions/{esc(sid)}/moderate/{esc(pid)}", inner)
 
 
 def _moderation_panel(sid, s, moderation):
@@ -735,11 +747,9 @@ def admin_session_detail(admin, s, moderation=None, notice=None):
 
 def _actions_for(s, sid):
     def btn(action, label, cls="", confirm=None):
-        # confirm -> routed through the overlay modal (js-confirm), not native confirm().
-        cls_attr = f"{cls} js-confirm".strip() if confirm else cls
-        extra = f' data-confirm="{esc(confirm)}"' if confirm else ""
-        return (f'<form class="inline" method="post" action="/admin/sessions/{sid}/{action}">'
-                f'<button class="{cls_attr}"{extra} type="submit">{label}</button></form>')
+        cls_attr, extra = _confirm_attrs(cls, confirm)
+        inner = f'<button class="{cls_attr}"{extra} type="submit">{label}</button>'
+        return _post_form(f"/admin/sessions/{sid}/{action}", inner)
     out = []
     st = s["state"]
     if st == "created":
