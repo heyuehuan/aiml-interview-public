@@ -34,14 +34,20 @@ CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"
 CODE_LEN = 6
 
 # created -> active -> closed -> exported -> reset.
+# `closed -> active` is the one non-linear edge: an admin may *reactivate* a closed
+# session so a candidate can resume after an accidental/early close (see reactivate()).
 TRANSITIONS = {
     "created": {"active"},
     "active": {"closed"},
-    "closed": {"exported"},
+    "closed": {"exported", "active"},
     "exported": {"reset"},
     "reset": set(),
 }
 LIVE_STATES = {"created", "active"}  # a code can only map to a not-yet-closed session
+
+# Reactivating a closed session keeps its remaining time if there is still a workable
+# amount left; below this threshold the admin must supply a fresh total (also >= this).
+REACTIVATE_MIN_MINUTES = int(os.environ.get("REACTIVATE_MIN_MINUTES", "30"))
 
 
 # --- boot checks ------------------------------------------------------------
@@ -459,16 +465,15 @@ def activate(session_id, actor="admin"):
         raise ValueError(
             f"{live['candidate_name']}'s session is still active — close it before "
             f"activating another (one candidate at a time)")
-    starts = now()
-    ends = starts + timedelta(minutes=s["duration_minutes"])
+    # Activation only provisions the workspace; it does NOT start the clock. The
+    # countdown begins when the candidate accepts the terms and lands on the dashboard
+    # (accept_terms sets starts_at/ends_at), so time an admin pre-provisions doesn't
+    # eat into the candidate's window.
     return _transition(
         session_id, "active", actor,
-        extra_sql="starts_at=?, ends_at=?, activated_at=?",
-        extra_params=(starts.isoformat(timespec="seconds"),
-                      ends.isoformat(timespec="seconds"),
-                      now_iso()),
+        extra_sql="activated_at=?",
+        extra_params=(now_iso(),),
         event="session_activated",
-        detail={"ends_at": ends.isoformat(timespec="seconds")},
     )
 
 
@@ -490,32 +495,123 @@ def rollback_activation(session_id, actor="admin", reason=""):
     return get_session(session_id)
 
 
+def minutes_left(session):
+    """Whole minutes remaining until ``ends_at`` (negative if already past), or None if
+    the clock has not started yet (candidate never reached the dashboard)."""
+    if not session.get("ends_at"):
+        return None
+    delta = datetime.fromisoformat(session["ends_at"]) - now()
+    return int(delta.total_seconds() // 60)
+
+
+def reactivate(session_id, actor="admin", total_minutes=None):
+    """Bring a *closed* session back to `active` so the candidate can resume (e.g. after
+    an accidental or early close). Single-tenant still holds: refuses while another
+    session is live.
+
+    Timer policy: if the clock never started, leave it unset so it
+    starts on the candidate's next dashboard view. If >= REACTIVATE_MIN_MINUTES remain,
+    keep the existing window untouched. If less remains, the admin must pass
+    ``total_minutes`` (>= REACTIVATE_MIN_MINUTES) and the window is reset to now + that.
+    """
+    s = get_session(session_id)
+    if s is None:
+        raise ValueError("no such session")
+    if s["state"] != "closed":
+        raise ValueError("only a closed session can be reactivated")
+    live = active_session()
+    if live and live["id"] != session_id:
+        raise ValueError(
+            f"{live['candidate_name']}'s session is still active — close it before "
+            f"reactivating another (one candidate at a time)")
+
+    left = minutes_left(s)
+    extra_sql, extra_params = "closed_at=NULL", ()
+    detail = {"policy": "preserve", "minutes_left": left}
+    if left is not None and left < REACTIVATE_MIN_MINUTES:
+        if total_minutes is None:
+            raise ValueError(
+                f"only {max(0, left)} min left — reactivate with a new total of at least "
+                f"{REACTIVATE_MIN_MINUTES} minutes")
+        total = int(total_minutes)
+        if total < REACTIVATE_MIN_MINUTES:
+            raise ValueError(f"the new total must be at least {REACTIVATE_MIN_MINUTES} minutes")
+        ends = now() + timedelta(minutes=total)
+        extra_sql = "closed_at=NULL, ends_at=?"
+        extra_params = (ends.isoformat(timespec="seconds"),)
+        detail = {"policy": "reset", "minutes_left": left, "new_total": total,
+                  "ends_at": ends.isoformat(timespec="seconds")}
+    return _transition(session_id, "active", actor, extra_sql=extra_sql,
+                       extra_params=extra_params, event="session_reactivated", detail=detail)
+
+
+def rollback_reactivation(session_id, actor="admin", reason=""):
+    """Undo a reactivation whose re-provisioning failed, returning the session to
+    `closed` (mirror of rollback_activation for the closed->active edge)."""
+    con = db.connect()
+    try:
+        con.execute(
+            "UPDATE sessions SET state='closed' WHERE id=? AND state='active'",
+            (session_id,),
+        )
+        con.commit()
+    finally:
+        con.close()
+    record_event(session_id, actor, "session_reactivation_rolled_back", {"reason": reason})
+    return get_session(session_id)
+
+
 def extend(session_id, minutes, actor="admin"):
     s = get_session(session_id)
     if s is None or s["state"] != "active":
         raise ValueError("can only extend an active session")
-    ends = datetime.fromisoformat(s["ends_at"]) + timedelta(minutes=int(minutes))
+    minutes = int(minutes)
     con = db.connect()
     try:
-        con.execute("UPDATE sessions SET ends_at=? WHERE id=?",
-                    (ends.isoformat(timespec="seconds"), session_id))
+        if s["ends_at"]:
+            ends = datetime.fromisoformat(s["ends_at"]) + timedelta(minutes=minutes)
+            new_ends = ends.isoformat(timespec="seconds")
+            con.execute("UPDATE sessions SET ends_at=? WHERE id=?", (new_ends, session_id))
+        else:
+            # Clock hasn't started (candidate hasn't reached the dashboard). Grow the
+            # duration so the extra time applies once the timer starts, rather than
+            # anchoring a window to now.
+            new_ends = None
+            con.execute("UPDATE sessions SET duration_minutes=duration_minutes+? WHERE id=?",
+                        (minutes, session_id))
         con.commit()
     finally:
         con.close()
-    record_event(session_id, actor, "session_extended",
-                 {"minutes": int(minutes), "ends_at": ends.isoformat(timespec="seconds")})
+    record_event(session_id, actor, "session_extended", {"minutes": minutes, "ends_at": new_ends})
     return get_session(session_id)
 
 
 def accept_terms(session_id, actor="candidate"):
+    """Record the candidate's terms acceptance and, on the *first* acceptance, start the
+    countdown — the timer begins when they land on the dashboard, not at admin
+    activation. Guarded on ``terms_accepted_at IS NULL`` so a
+    re-post (or a resumed session that already accepted) never restarts the clock."""
+    s = get_session(session_id)
+    if s is None:
+        raise ValueError("no such session")
+    starts = now()
+    ends = starts + timedelta(minutes=s["duration_minutes"])
     con = db.connect()
     try:
-        con.execute("UPDATE sessions SET terms_accepted_at=? WHERE id=? AND terms_accepted_at IS NULL",
-                    (now_iso(), session_id))
+        cur = con.execute(
+            "UPDATE sessions SET terms_accepted_at=?, starts_at=?, ends_at=? "
+            "WHERE id=? AND terms_accepted_at IS NULL",
+            (now_iso(), starts.isoformat(timespec="seconds"),
+             ends.isoformat(timespec="seconds"), session_id),
+        )
+        started = cur.rowcount > 0
         con.commit()
     finally:
         con.close()
-    record_event(session_id, actor, "terms_accepted")
+    if started:
+        record_event(session_id, actor, "terms_accepted",
+                     {"starts_at": starts.isoformat(timespec="seconds"),
+                      "ends_at": ends.isoformat(timespec="seconds")})
     return get_session(session_id)
 
 
