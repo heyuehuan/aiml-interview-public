@@ -38,7 +38,6 @@ MODEL_TYPE_VERTEX_AI = "vertex-ai"
 
 # Global configuration
 model_list: List[Dict[str, Any]] = []
-general_settings: Dict[str, Any] = {}
 vertex_handlers: Dict[str, VertexAIHandler] = {}
 
 
@@ -51,23 +50,22 @@ class ProxyConfig:
   
     async def load_config(self, config_file_path: str) -> None:
         """Load configuration from YAML file"""
-        global model_list, general_settings, vertex_handlers
-      
+        global model_list, vertex_handlers
+
         if not os.path.exists(config_file_path):
             verbose_proxy_logger.warning(f"Config file not found: {config_file_path}")
             return
-      
+
         with open(config_file_path, "r") as f:
             config = yaml.safe_load(f)
-      
+
         # Load model list
         self.model_list = config.get("model_list", [])
         model_list = self.model_list
-      
+
         # Load general settings
         self.general_settings = config.get("general_settings", {})
-        general_settings = self.general_settings
-      
+
         # Initialize handlers for each model
         for model_config in self.model_list:
             model_name = model_config.get("model_name")

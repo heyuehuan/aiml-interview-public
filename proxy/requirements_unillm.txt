@@ -9,6 +9,7 @@ click>=8.0.0
 httpx>=0.24.0
 PyYAML>=6.0
 
-# Google Cloud dependencies for Vertex AI
+# Google Cloud dependencies for Vertex AI. The handler uses Application Default
+# Credentials (service-account JSON) — no interactive OAuth flow — so google-auth
+# alone is enough; google-auth-oauthlib was unused and removed.
 google-auth>=2.0.0
-google-auth-oauthlib>=1.0.0
