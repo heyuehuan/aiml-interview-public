@@ -130,6 +130,9 @@ services:
       # active session's llm_transcript.jsonl, resolving the session from the control file.
       DATA_DIR: /data
       CONTROL_FILE: /control/active.json
+      # Cost/DoS guards: output-token ceiling per call + per-key request budget.
+      UNILLM_MAX_OUTPUT_TOKENS: ${UNILLM_MAX_OUTPUT_TOKENS:-8192}
+      UNILLM_RATE_LIMIT_PER_MIN: ${UNILLM_RATE_LIMIT_PER_MIN:-60}
     volumes:
       - ${GCP_SA_KEY_FILE:-./secrets/gcp-sa.json}:/secrets/gcp-sa.json:ro
       - platform_data:/data          # writes only data/sessions/<id>/llm_transcript.jsonl
