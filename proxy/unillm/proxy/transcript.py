@@ -11,8 +11,9 @@ Design notes:
     (`/control/active.json`), not from the API key: the MVP uses one shared master key
     for every candidate, so the key identifies nothing. No active session ⇒ no session
     to attribute the call to ⇒ it lands in `unattributed.jsonl` rather than being lost.
-  * Append-only, one line per call, `O_APPEND` writes — the stream is never rewritten,
-    and nothing candidate-reachable can reach this path.
+  * Append-only, one line per call, `O_APPEND` writes under an advisory lock — the
+    stream is never rewritten, lines can't interleave, and nothing
+    candidate-reachable can reach this path.
   * **Logging must never break a candidate's request.** Every entry point swallows its
     own exceptions: a full disk or a malformed control file degrades the audit trail,
     it does not take the proxy down mid-interview.
@@ -24,6 +25,11 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+
+try:
+    import fcntl  # POSIX advisory file locks (the deploy target is Linux containers)
+except ImportError:  # pragma: no cover - non-POSIX dev host
+    fcntl = None
 
 # Plain stdlib logger (same name the proxy's own logger uses, so output is consistent).
 # Deliberately not importing unillm._logging: the audit sink must stay loadable on its
@@ -73,7 +79,21 @@ def _append(entry):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     line = json.dumps(entry, separators=(",", ":"), default=str) + "\n"
     with open(path, "a", encoding="utf-8") as fh:
-        fh.write(line)
+        # A full transcript line (two ~MAX_CHARS fields) can exceed PIPE_BUF (~4 KiB),
+        # above which an O_APPEND write is no longer guaranteed atomic — two writers
+        # could interleave and corrupt a line. The proxy runs a single uvicorn worker
+        # today (proxy_cli.py), so nothing interleaves, but serialize writers with an
+        # advisory lock so a future workers>1 deploy stays safe. Best-effort:
+        # a lock failure must not lose the audit line.
+        locked = False
+        try:
+            if fcntl is not None:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                locked = True
+            fh.write(line)
+        finally:
+            if locked:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def record(*, endpoint, model, messages=None, prompt=None, response_text=None,
