@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Print a scrypt hash for an admin password, for ADMIN_PASSWORD_HASH in .env.
+"""Print a PBKDF2-HMAC-SHA256 hash for an admin password, for ADMIN_PASSWORD_HASH
+in .env (model.hash_password is the single source of the scheme).
 
     python environments/portal/hashpw.py 'my-password'
 """
