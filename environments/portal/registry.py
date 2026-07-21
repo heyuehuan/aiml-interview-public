@@ -24,6 +24,17 @@ DATA_DIR = os.environ.get("DATA_DIR", "/data")
 VISIBILITY_PATH = os.path.join(DATA_DIR, "problem_visibility.json")
 SELECTABLE = {"active", "draft"}  # hidden/retired are not offered in the panel
 
+# The registry parser below and the packager's problem.yaml parser share how they
+# de-comment/unquote a scalar. Reuse the packager's helper so the two agree; the
+# packager is a sibling package whose mount may not be importable at load time, so fall
+# back to a local copy rather than hard-depending on it.
+try:
+    sys.path.insert(0, os.path.dirname(PROBLEMS_ROOT))
+    from problems.package import clean_scalar as _clean_scalar
+except Exception:  # pragma: no cover - packager not importable in this layout
+    def _clean_scalar(val):
+        return val.split(" #", 1)[0].strip().strip("\"'")
+
 
 def _parse_registry(path):
     problems, cur, in_list = [], None, False
@@ -48,8 +59,7 @@ def _parse_registry(path):
                 stripped = stripped[2:].strip()
             if cur is not None and ":" in stripped:
                 key, _, val = stripped.partition(":")
-                val = val.split(" #", 1)[0]  # drop inline comments
-                cur[key.strip()] = val.strip().strip('"\'')
+                cur[key.strip()] = _clean_scalar(val)
         if cur:
             problems.append(cur)
     return [p for p in problems if "id" in p]
