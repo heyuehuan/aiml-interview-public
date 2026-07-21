@@ -1,5 +1,9 @@
 # Logging & audit
 
+> **Historical design note — superseded by the implementation.**
+> The audit streams are realized across `scripts/` (shadow-git snapshot + export),
+> the proxy transcript (`proxy/unillm/proxy/transcript.py`), and session events
+
 The formal, auditable record of each session. **Local-first**: streams
 are written append-only on the platform host during the session and leave the host as
 one export bundle at close — no external storage dependency for now.

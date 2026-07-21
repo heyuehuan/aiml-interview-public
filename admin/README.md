@@ -1,5 +1,10 @@
 # Admin console
 
+> **Historical design note — superseded by the implementation.**
+> The admin console is built and lives in `environments/portal/` (`admin.py`,
+> This file captures the original intent and may have drifted — where it disagrees
+> with the code (e.g. registry `status` semantics, now enforced in `registry.py`),
+
 Interviewer/operator surface, running concurrently with the candidate session on the
 platform host. Auth via dedicated admin accounts — never shared logins.
 
