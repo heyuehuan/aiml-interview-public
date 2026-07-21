@@ -23,6 +23,10 @@ your-gcp-project-*.json
 *-sa.json
 *.iam.gserviceaccount.com.json
 
+# per-candidate session working data — host-local, never committed
+# (auditable candidate work lives here as candidate_data/<session>/)
+candidate_data/
+
 # tooling
 .DS_Store
 .idea/
