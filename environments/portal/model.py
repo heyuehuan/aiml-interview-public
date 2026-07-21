@@ -13,6 +13,7 @@ import hmac
 import json
 import os
 import secrets
+import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -434,11 +435,19 @@ def _transition(session_id, to_state, actor, extra_sql="", extra_params=(), even
         cur = row["state"]
         if to_state not in TRANSITIONS.get(cur, set()):
             raise ValueError(f"illegal transition {cur} -> {to_state}")
-        con.execute(
-            f"UPDATE sessions SET state=?{(', ' + extra_sql) if extra_sql else ''} WHERE id=?",
-            (to_state, *extra_params, session_id),
-        )
-        con.commit()
+        try:
+            con.execute(
+                f"UPDATE sessions SET state=?{(', ' + extra_sql) if extra_sql else ''} WHERE id=?",
+                (to_state, *extra_params, session_id),
+            )
+            con.commit()
+        except sqlite3.IntegrityError:
+            # The only unique constraint a state change can violate is one_active_session
+            #: another session won the race to 'active' between our check and this
+            # commit. Surface it as the same "one candidate at a time" refusal.
+            raise ValueError(
+                "another session is already active — close it before activating another "
+                "(one candidate at a time)")
     finally:
         con.close()
     record_event(session_id, actor, event or f"state_{to_state}", detail)
