@@ -717,10 +717,10 @@ def _moderation_panel(sid, s, moderation):
 </div>"""
 
 
-def admin_session_detail(admin, s, moderation=None, notice=None):
+def admin_session_detail(admin, s, moderation=None, notice=None, reactivate=None):
     note = f'<div class="ok">{esc(notice)}</div>' if notice else ""
     sid = esc(s["id"])
-    actions = _actions_for(s, sid)
+    actions = _actions_for(s, sid, reactivate)
     fields = [
         ("Candidate", s["candidate_name"]),
         ("Workspace user", s["workspace_user"]),
@@ -745,7 +745,34 @@ def admin_session_detail(admin, s, moderation=None, notice=None):
     return page(f"Session — {s['candidate_name']}", body)
 
 
-def _actions_for(s, sid):
+def _reactivate_control(sid, r):
+    """Reactivate button for a closed session. When the clock started and little time is
+    left (``needs_total``), require the admin to enter a fresh total (>= min_minutes);
+    otherwise the remaining window is preserved and a plain button suffices."""
+    action = f"/admin/sessions/{sid}/reactivate"
+    min_m = int(r.get("min_minutes") or 30)
+    left = r.get("remaining")
+    if r.get("needs_total"):
+        default = max(min_m, 60)
+        return (
+            f'<form class="inline" method="post" action="{action}">'
+            f'<span class="muted" style="margin-right:.4rem">Only {max(0, int(left))} min left — '
+            f'reactivate with total</span>'
+            f'<input type="number" name="total_minutes" value="{default}" min="{min_m}" '
+            f'style="width:5.5rem"> min'
+            f'<button class="js-confirm" style="margin-left:.4rem" '
+            f'data-confirm="Reactivate this session for a fresh {default}-minute window and let '
+            f'the candidate back in?" type="submit">Reactivate</button></form>')
+    tip = (f"Reactivate this session? {int(left)} min remain and the candidate regains access."
+           if left is not None else
+           "Reactivate this session? The candidate regains access; the timer starts when "
+           "they reopen the dashboard.")
+    return (
+        f'<form class="inline" method="post" action="{action}">'
+        f'<button class="js-confirm" data-confirm="{esc(tip)}" type="submit">Reactivate</button></form>')
+
+
+def _actions_for(s, sid, reactivate=None):
     def btn(action, label, cls="", confirm=None):
         cls_attr, extra = _confirm_attrs(cls, confirm)
         inner = f'<button class="{cls_attr}"{extra} type="submit">{label}</button>'
@@ -764,6 +791,7 @@ def _actions_for(s, sid):
         out.append(btn("close", "Close session", "danger",
                        "Close this session? The candidate immediately loses access."))
     if st == "closed":
+        out.append(_reactivate_control(sid, reactivate or {}))
         out.append(btn("export", "Export bundle"))
     if st in ("closed", "exported"):
         out.append(f'<a class="btn secondary" href="/admin/sessions/{sid}/download">Download export</a>')

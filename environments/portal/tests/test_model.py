@@ -82,13 +82,28 @@ def test_full_lifecycle():
     s = _new()
     assert s["state"] == "created"
     s = model.activate(s["id"])
-    assert s["state"] == "active" and s["ends_at"]
+    # Activation provisions but does NOT start the clock (that happens at terms accept).
+    assert s["state"] == "active" and s["ends_at"] is None and s["activated_at"]
     s = model.close(s["id"])
     assert s["state"] == "closed"
     s = model.mark_exported(s["id"])
     assert s["state"] == "exported"
     s = model.mark_reset(s["id"])
     assert s["state"] == "reset"
+
+
+def test_timer_starts_at_terms_acceptance_not_activation():
+    s = _new(duration_minutes=90)
+    s = model.activate(s["id"])
+    assert s["starts_at"] is None and s["ends_at"] is None   # clock not running yet
+    s = model.accept_terms(s["id"])
+    assert s["starts_at"] and s["ends_at"]                   # started on first acceptance
+    left = model.minutes_left(s)
+    assert 88 <= left <= 90                                  # ~full duration from now
+    # A repeat acceptance must not restart the clock.
+    ends_first = s["ends_at"]
+    s = model.accept_terms(s["id"])
+    assert s["ends_at"] == ends_first
 
 
 def test_illegal_transitions_rejected():
@@ -105,9 +120,20 @@ def test_extend_only_when_active():
     with pytest.raises(ValueError):
         model.extend(s["id"], 15)
     model.activate(s["id"])
+    model.accept_terms(s["id"])                          # start the clock
     before = model.get_session(s["id"])["ends_at"]
     after = model.extend(s["id"], 30)["ends_at"]
     assert after > before
+
+
+def test_extend_before_clock_starts_grows_duration():
+    s = _new(duration_minutes=60)
+    model.activate(s["id"])                              # ends_at still None
+    s = model.extend(s["id"], 30)
+    assert s["ends_at"] is None and s["duration_minutes"] == 90
+    # the grown duration is what the timer uses once the candidate accepts terms
+    s = model.accept_terms(s["id"])
+    assert 88 <= model.minutes_left(s) <= 90
 
 
 def test_events_written_for_each_transition():
@@ -249,9 +275,9 @@ def test_second_active_row_is_rejected_at_the_db_level():
 
 
 # --- activation rollback --------------------------------
-# Provisioning runs after the state flips (the control file needs `ends_at`). If it
-# fails, the session must fall back to `created` — otherwise it strands in `active` with
-# no workspace and no legal transition back, and the admin cannot retry.
+# Provisioning (LLM key + control file) runs after the state flips. If it fails, the
+# session must fall back to `created` — otherwise it strands in `active` with no
+# workspace and no legal transition back, and the admin cannot retry.
 def test_rollback_activation_restores_a_retryable_session():
     s = _new()
     model.activate(s["id"])
@@ -262,6 +288,84 @@ def test_rollback_activation_restores_a_retryable_session():
     assert back["state"] == "created"
     assert back["ends_at"] is None and back["activated_at"] is None
     assert model.active_session() is None       # frees the single-active slot
+
+
+# --- reactivation: closed -> active ----------------------------
+def _closed_with_left(minutes_left, duration=90):
+    """A closed session whose ends_at sits `minutes_left` minutes from now."""
+    s = _new()
+    model.activate(s["id"])
+    model.accept_terms(s["id"])                 # starts the clock
+    target = (model.now() + timedelta(minutes=minutes_left)).isoformat(timespec="seconds")
+    con = db.connect()
+    con.execute("UPDATE sessions SET ends_at=? WHERE id=?", (target, s["id"]))
+    con.commit()
+    con.close()
+    model.close(s["id"])
+    return model.get_session(s["id"])
+
+
+def test_reactivate_preserves_ample_remaining_time():
+    s = _closed_with_left(75)
+    ends_before = s["ends_at"]
+    s = model.reactivate(s["id"])
+    assert s["state"] == "active"
+    assert s["ends_at"] == ends_before          # window untouched
+    assert model.active_session()["id"] == s["id"]
+
+
+def test_reactivate_with_low_time_requires_a_fresh_total():
+    s = _closed_with_left(10)                    # below the 30-min threshold
+    with pytest.raises(ValueError, match="at least"):
+        model.reactivate(s["id"])                # no total supplied
+    assert model.get_session(s["id"])["state"] == "closed"   # not flipped
+    s = model.reactivate(s["id"], total_minutes=45)
+    assert s["state"] == "active"
+    assert 43 <= model.minutes_left(s) <= 45
+
+
+def test_reactivate_rejects_total_below_minimum():
+    s = _closed_with_left(5)
+    with pytest.raises(ValueError, match="at least"):
+        model.reactivate(s["id"], total_minutes=20)
+
+
+def test_reactivate_not_started_leaves_clock_unset():
+    # Candidate never accepted terms, so the clock never started; reactivation keeps it
+    # unset and it starts when they reopen the dashboard.
+    s = _new()
+    model.activate(s["id"])
+    model.close(s["id"])
+    assert model.get_session(s["id"])["ends_at"] is None
+    s = model.reactivate(s["id"])
+    assert s["state"] == "active" and s["ends_at"] is None
+
+
+def test_reactivate_only_from_closed():
+    s = _new()
+    with pytest.raises(ValueError, match="closed"):
+        model.reactivate(s["id"])                # created
+    model.activate(s["id"])
+    with pytest.raises(ValueError, match="closed"):
+        model.reactivate(s["id"])                # active
+
+
+def test_reactivate_blocked_while_another_session_is_live():
+    first = _closed_with_left(60)
+    second = _new(candidate_name="Second")
+    model.activate(second["id"])                 # someone else is now live
+    with pytest.raises(ValueError, match="still active"):
+        model.reactivate(first["id"])
+    assert model.get_session(first["id"])["state"] == "closed"
+
+
+def test_rollback_reactivation_returns_to_closed():
+    s = _closed_with_left(60)
+    model.reactivate(s["id"])
+    assert model.get_session(s["id"])["state"] == "active"
+    model.rollback_reactivation(s["id"], reason="provisioning failed")
+    assert model.get_session(s["id"])["state"] == "closed"
+    assert model.active_session() is None
 
     model.activate(s["id"])                     # the whole point: retry works
     assert model.get_session(s["id"])["state"] == "active"

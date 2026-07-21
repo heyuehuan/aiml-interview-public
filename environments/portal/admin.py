@@ -187,8 +187,18 @@ def detail(req, sid):
     s = model.get_session(sid)
     if not s:
         return Response.not_found()
+    reactivate = None
+    if s["state"] == "closed":
+        left = model.minutes_left(s)
+        reactivate = {
+            "remaining": left,
+            "min_minutes": model.REACTIVATE_MIN_MINUTES,
+            # A fresh total is required only when the clock started and too little is left.
+            "needs_total": left is not None and left < model.REACTIVATE_MIN_MINUTES,
+        }
     return Response.html(views.admin_session_detail(
-        who, s, moderation=_moderation_state(s), notice=req.query.get("notice")))
+        who, s, moderation=_moderation_state(s), notice=req.query.get("notice"),
+        reactivate=reactivate))
 
 
 @router.route("POST", "/admin/sessions/<sid>/moderate/<pid>")
@@ -302,6 +312,32 @@ def _activate(req, sid, who):
         raise ValueError(f"could not provision the workspace — {exc}")
 
 
+def _reactivate(req, sid, who):
+    """Bring a closed session back to active so the candidate can resume. Re-provisions
+    the workspace (re-issues the LLM key + republishes the control file) the same way
+    activation does, and follows the same fail-safe order: package first, then flip, then
+    provision — a failure rolls the session back to `closed`."""
+    s = model.get_session(sid)
+    if s is None:
+        raise ValueError("no such session")
+    if s["state"] != "closed":
+        raise ValueError("only a closed session can be reactivated")
+    live = model.active_session()
+    if live and live["id"] != sid:
+        raise ValueError(
+            f"{live['candidate_name']}'s session is still active — close it before "
+            f"reactivating another (one candidate at a time)")
+    raw_total = (req.form.get("total_minutes") or "").strip()
+    total = int(raw_total) if raw_total else None
+    integrations.preflight_activate(s)          # re-package (can fail → stays closed)
+    s = model.reactivate(sid, actor=who, total_minutes=total)
+    try:
+        integrations.on_activate(s)
+    except Exception as exc:
+        model.rollback_reactivation(sid, actor=who, reason=str(exc))
+        raise ValueError(f"could not re-provision the workspace — {exc}")
+
+
 def _seed_workspace(req, sid, who):
     s = model.get_session(sid)
     if not s or s["state"] != "active":
@@ -336,6 +372,7 @@ def _reset(req, sid, who):
 
 router.add("POST", "/admin/sessions/<sid>/seed-workspace", _lifecycle(_seed_workspace))
 router.add("POST", "/admin/sessions/<sid>/activate", _lifecycle(_activate))
+router.add("POST", "/admin/sessions/<sid>/reactivate", _lifecycle(_reactivate))
 router.add("POST", "/admin/sessions/<sid>/extend", _lifecycle(_extend))
 router.add("POST", "/admin/sessions/<sid>/close", _lifecycle(_close))
 router.add("POST", "/admin/sessions/<sid>/export", _lifecycle(_export))

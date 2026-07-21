@@ -255,6 +255,22 @@ def write_control(session, llm_api_key):
     _atomic_write(CONTROL_FILE, json.dumps(doc, indent=2))
 
 
+def refresh_control_ends_at(session):
+    """Rewrite the live control file's ``ends_at`` to match the session — used when the
+    clock starts at terms-acceptance (after activation wrote ends_at=None). No-op unless
+    the control file already names this session active, so a stale/other session's
+    handoff is never clobbered. Informational: ends_at gates only on the portal side."""
+    try:
+        with open(CONTROL_FILE, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (FileNotFoundError, ValueError):
+        return
+    if doc.get("state") != "active" or doc.get("session_id") != session["id"]:
+        return
+    doc["ends_at"] = session.get("ends_at")
+    _atomic_write(CONTROL_FILE, json.dumps(doc, indent=2))
+
+
 def clear_control():
     """No active session: workspace tools stay locked."""
     _atomic_write(CONTROL_FILE, json.dumps({"state": "inactive"}, indent=2))

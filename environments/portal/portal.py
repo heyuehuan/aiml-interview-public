@@ -98,7 +98,10 @@ def accept_terms(req):
         return Response.redirect("/")
     if req.form.get("accept") != "yes":
         return Response.html(views.terms(s, error="You must accept the terms to continue."))
-    model.accept_terms(s["id"])
+    # First acceptance starts the countdown (model sets starts_at/ends_at). Push the now-
+    # concrete ends_at into the live control file so the workspace handoff is truthful.
+    s = model.accept_terms(s["id"])
+    integrations.refresh_control_ends_at(s)
     return Response.redirect("/")
 
 

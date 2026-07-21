@@ -13,16 +13,21 @@ HTML. Two processes from one codebase:
 
 `access code → terms → home → tools`. The 6-letter code (case-insensitive, stored
 uppercase) resolves to an **active** session inside its window; the code auto-disables
-`ends_at + 60min`. Terms acceptance is timestamped and gates the workspace: `/api/authz`
-(the proxy's `forward_auth` subrequest for `/ide` and `/jupyter`) returns **204** only
-for an active, terms-accepted, in-window session, else **401**.
+`ends_at + 60min`. Terms acceptance is timestamped, **starts the countdown** (sets
+`starts_at`/`ends_at` on first acceptance — not at activation, so pre-provisioning time
+isn't charged to the candidate), and gates the workspace: `/api/authz` (the proxy's
+`forward_auth` subrequest for `/ide` and `/jupyter`) returns **204** only for an active,
+terms-accepted, in-window session, else **401**.
 
 ## Admin lifecycle
 
 Create → **activate** (writes the control file + issues the LLM key + packages problems)
 → extend / close → export → reset, mapped onto the `created→active→closed→exported→reset`
-state machine. Every transition appends to `data/sessions/<id>/events.jsonl`. Admin
-accounts live in the `admins` table, seeded from `.env` on first boot.
+state machine. A **closed** session can be **reactivated** (`closed→active`) so a
+candidate can resume: it re-provisions like activation, preserves the remaining time when
+≥30 min are left, and otherwise prompts the admin for a fresh total (≥30 min). Every
+transition appends to `data/sessions/<id>/events.jsonl`. Admin accounts live in the
+`admins` table, seeded from `.env` on first boot.
 
 ## The non-root workspace
 
