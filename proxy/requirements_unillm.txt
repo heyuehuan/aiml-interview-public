@@ -11,5 +11,8 @@ PyYAML>=6.0
 
 # Google Cloud dependencies for Vertex AI. The handler uses Application Default
 # Credentials (service-account JSON) — no interactive OAuth flow — so google-auth
-# alone is enough; google-auth-oauthlib was unused and removed.
+# alone is enough; google-auth-oauthlib was unused and removed. `requests` is
+# required explicitly: vertex_ai.py imports google.auth.transport.requests, and once
+# google-auth-oauthlib was dropped nothing else pulled requests in transitively.
 google-auth>=2.0.0
+requests>=2.28.0
