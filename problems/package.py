@@ -56,6 +56,13 @@ def _log(msg):
 
 
 # --- tiny manifest reader (no YAML dependency) ----------------
+def clean_scalar(val):
+    """De-comment and unquote a YAML scalar value: drop a trailing `# comment`, strip
+    surrounding whitespace, then surrounding quotes. Shared with the portal registry
+    parser so both tiny hand-rolled readers treat a scalar identically."""
+    return val.split(" #", 1)[0].strip().strip("\"'")
+
+
 def parse_manifest(path):
     """Pull the few fields the packager needs from a problem.yaml: id, title, the
     ``candidate_paths`` list, ``data.generator``, and the folded ``summary``. A
@@ -75,7 +82,7 @@ def parse_manifest(path):
             # A new top-level key closes any open section.
             if not indented and ":" in stripped and not stripped.startswith("- "):
                 key, _, val = stripped.partition(":")
-                key, val = key.strip(), val.split(" #", 1)[0].strip()
+                key, val = key.strip(), clean_scalar(val)
                 section = None
                 if key == "candidate_paths":
                     section = "candidate_paths"
@@ -84,9 +91,9 @@ def parse_manifest(path):
                 elif key == "summary":
                     section = "summary"
                 elif key == "id":
-                    man["id"] = val.strip("\"'")
+                    man["id"] = val
                 elif key == "title":
-                    man["title"] = val.strip("\"'")
+                    man["title"] = val
                 continue
 
             if section == "candidate_paths" and stripped.startswith("- "):
@@ -94,7 +101,7 @@ def parse_manifest(path):
             elif section == "data" and ":" in stripped:
                 k, _, v = stripped.partition(":")
                 if k.strip() == "generator":
-                    man["generator"] = v.split(" #", 1)[0].strip().strip("\"'")
+                    man["generator"] = clean_scalar(v)
             elif section == "summary" and indented:
                 man["summary"] += (" " if man["summary"] else "") + stripped
     return man
