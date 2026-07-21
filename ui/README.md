@@ -1,5 +1,8 @@
 # UI — candidate portal
 
+> **Historical design note — superseded by the implementation.**
+> The candidate portal is built in `environments/portal/` (`server.py`, `views.py`);
+
 The candidate-facing web surface. Deliberately thin: entry, orientation, and
 submission — the real environment is the workspace tools it links to.
 

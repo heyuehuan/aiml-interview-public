@@ -1,5 +1,11 @@
 # Infra
 
+> **Historical design note — superseded by the implementation.**
+> The deployment is realized in `environments/` (`compose.yaml`, `Dockerfile*`),
+> `scripts/`, and `DEPLOY.md`. This file records the original intent and may have
+> drifted — the compose/scripts and `DEPLOY.md` are authoritative. (`images/` still
+> holds the base-image spec referenced below.)
+
 Deployment of the single persistent platform host. Owns everything server-side below
 the application layer.
 
