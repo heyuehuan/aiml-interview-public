@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from unillm import __version__
 from unillm._logging import verbose_proxy_logger, set_verbose
-from unillm.proxy import transcript
+from unillm.proxy import limits, transcript
 from unillm.proxy.auth import user_api_key_auth
 from unillm.types import (
     ChatCompletionRequest,
@@ -306,6 +306,17 @@ def _get_model_params(model_name: str) -> Dict[str, Any]:
     return {}
 
 
+def _enforce_rate_limit(user_api_key_dict: UserAPIKeyAuth) -> None:
+    """Reject with 429 when this key is over its per-minute budget."""
+    if not limits.check_rate_limit(user_api_key_dict.api_key):
+        verbose_proxy_logger.warning("Rate limit exceeded for a key")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Slow down and retry shortly.",
+            headers={"Retry-After": "60"},
+        )
+
+
 # Chat completions endpoint
 @app.post("/v1/chat/completions", dependencies=[Depends(user_api_key_auth)])
 @app.post("/chat/completions", dependencies=[Depends(user_api_key_auth)])
@@ -319,13 +330,14 @@ async def chat_completions(
     Follows the OpenAI Chat Completions API specification.
     https://platform.openai.com/docs/api-reference/chat/create
     """
+    _enforce_rate_limit(user_api_key_dict)
     # Extract parameters from request body
     model = request_body.model
     messages = [msg.model_dump(exclude_none=True) for msg in request_body.messages]
     stream = request_body.stream or False
     temperature = request_body.temperature
     top_p = request_body.top_p
-    max_tokens = request_body.max_tokens
+    max_tokens = limits.cap_output_tokens(request_body.max_tokens)  # hard ceiling
     stop = request_body.stop
   
     # Get handler and model config
@@ -400,13 +412,14 @@ async def completions(
     Follows the OpenAI Completions API specification.
     https://platform.openai.com/docs/api-reference/completions/create
     """
+    _enforce_rate_limit(user_api_key_dict)
     # Extract parameters from request body
     model = request_body.model
     prompt = request_body.prompt
     stream = request_body.stream or False
     temperature = request_body.temperature
     top_p = request_body.top_p
-    max_tokens = request_body.max_tokens
+    max_tokens = limits.cap_output_tokens(request_body.max_tokens)  # hard ceiling
     stop = request_body.stop
   
     # Get handler and model config
