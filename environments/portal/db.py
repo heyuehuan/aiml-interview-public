@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS moderation (
     updated_at TEXT,
     PRIMARY KEY (session_id, problem_id)
 );
+
+-- One candidate at a time. A partial unique index makes "at most one active
+-- session" a database invariant: every indexed row has state='active', so uniqueness
+-- on that column permits only one. This backstops the application-level check in
+-- model.activate() — two concurrent activations on separate connections can both pass
+-- `active_session() is None`, but only one UPDATE to 'active' can commit.
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_session ON sessions(state) WHERE state='active';
 """
 
 

@@ -229,6 +229,25 @@ def test_reactivating_the_same_session_is_not_self_blocked():
         model.activate(s["id"])
 
 
+# The application-level guard in activate() is a check-then-act across two connections,
+# so a concurrent activation could slip past it. The real backstop is the partial
+# unique index: even if the app check is bypassed entirely, the DB refuses a second
+# 'active' row. This asserts that invariant directly.
+def test_second_active_row_is_rejected_at_the_db_level():
+    import sqlite3
+    first, second = _new(candidate_name="First"), _new(candidate_name="Second")
+    model.activate(first["id"])
+    con = db.connect()
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            con.execute("UPDATE sessions SET state='active' WHERE id=?", (second["id"],))
+            con.commit()
+    finally:
+        con.close()
+    # The failed write left the first session as the sole active one.
+    assert model.active_session()["id"] == first["id"]
+
+
 # --- activation rollback --------------------------------
 # Provisioning runs after the state flips (the control file needs `ends_at`). If it
 # fails, the session must fall back to `created` — otherwise it strands in `active` with
