@@ -31,17 +31,10 @@ from unillm.types import (
     UserAPIKeyAuth,
 )
 from unillm.llm.vertex_ai import VertexAIHandler
-# CMEK/KMS path needs the heavy `vertexai` SDK and is unused here (owner decision:
-# master-key model, no CMEK). Keep it optional so plain Vertex works without that dep.
-try:
-    from unillm.llm.vertex_ai_kms import VertexAIKMSHandler
-except ImportError:  # pragma: no cover - only hit when a vertex-ai-kms model is configured
-    VertexAIKMSHandler = None
 
 
 # Model type constants
 MODEL_TYPE_VERTEX_AI = "vertex-ai"
-MODEL_TYPE_VERTEX_AI_KMS = "vertex-ai-kms"
 
 # Global configuration
 model_list: List[Dict[str, Any]] = []
@@ -85,26 +78,12 @@ class ProxyConfig:
           
             project = unillm_params.get("project")
             location = unillm_params.get("location", "us-central1")
-            model_type = unillm_params.get("model_type", MODEL_TYPE_VERTEX_AI)
-          
-            # Route to appropriate handler based on model_type
-            if model_type == MODEL_TYPE_VERTEX_AI_KMS:
-                kms_key_name = unillm_params.get("kms_key_name")
-                vertex_handlers[model_name] = VertexAIKMSHandler(
-                    project=project,
-                    location=location,
-                    kms_key_name=kms_key_name,
-                )
-                verbose_proxy_logger.info(
-                    f"Initialized KMS handler for model '{model_name}' with KMS key"
-                )
-            else:
-                # Default: vertex-ai
-                vertex_handlers[model_name] = VertexAIHandler(
-                    project=project,
-                    location=location,
-                )
-      
+
+            vertex_handlers[model_name] = VertexAIHandler(
+                project=project,
+                location=location,
+            )
+
         verbose_proxy_logger.info(f"Loaded {len(self.model_list)} models from config")
   
     def get_model_config(self, model_name: str) -> Optional[Dict[str, Any]]:
@@ -260,21 +239,10 @@ def _get_handler_for_model(model_name: str) -> VertexAIHandler:
     model_config = proxy_config.get_model_config(model_name)
     if model_config:
         params = model_config.get("litellm_params", model_config.get("unillm_params", {}))
-        model_type = params.get("model_type", MODEL_TYPE_VERTEX_AI)
-        verbose_proxy_logger.debug(f"Model '{model_name}' has model_type: {model_type}")
-
-        # Route to appropriate handler based on model_type
-        if model_type == MODEL_TYPE_VERTEX_AI_KMS:
-            return VertexAIKMSHandler(
-                project=params.get("project"),
-                location=params.get("location", "us-central1"),
-                kms_key_name=params.get("kms_key_name"),
-            )
-        else:
-            return VertexAIHandler(
-                project=params.get("project"),
-                location=params.get("location", "us-central1"),
-            )
+        return VertexAIHandler(
+            project=params.get("project"),
+            location=params.get("location", "us-central1"),
+        )
 
     # Not in the allowlist: reject rather than fall through to a default handler
     # that would forward an arbitrary model name upstream.
@@ -349,7 +317,6 @@ async def chat_completions(
 
     started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
-        # Build kwargs for handler - include kms_key_name if present (for vertex-ai-kms)
         handler_kwargs = {
             "model": actual_model,
             "messages": messages,
@@ -361,11 +328,7 @@ async def chat_completions(
             "project": model_params.get("project"),
             "location": model_params.get("location"),
         }
-      
-        # Add kms_key_name if present (for vertex-ai-kms handler)
-        if model_params.get("kms_key_name"):
-            handler_kwargs["kms_key_name"] = model_params.get("kms_key_name")
-      
+
         response = await handler.chat_completion(**handler_kwargs)
 
         if stream:
@@ -431,7 +394,6 @@ async def completions(
 
     started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
-        # Build kwargs for handler - include kms_key_name if present (for vertex-ai-kms)
         handler_kwargs = {
             "model": actual_model,
             "prompt": prompt,
@@ -443,11 +405,7 @@ async def completions(
             "project": model_params.get("project"),
             "location": model_params.get("location"),
         }
-      
-        # Add kms_key_name if present (for vertex-ai-kms handler)
-        if model_params.get("kms_key_name"):
-            handler_kwargs["kms_key_name"] = model_params.get("kms_key_name")
-      
+
         response = await handler.text_completion(**handler_kwargs)
 
         if stream:
