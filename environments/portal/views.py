@@ -947,8 +947,8 @@ def _provision_panel(sid, s, cwd, provision_status=None):
     for p, has in status:
         if has:
             actions = (f'<div class="row" style="gap:.4rem">{form("provision", p, "Provision")}'
-                       f'{form("reset", p, "Reset", confirm=f"Reset {p}/data/ to the seeded original? Candidate edits to that data are lost.")}</div>')
-            folder = f'{esc(p)}/data'
+                       f'{form("reset", p, "Reset", confirm=f"Reset data/{p}/ to the seeded original? Candidate edits to that data are lost.")}</div>')
+            folder = f'data/{esc(p)}'
         else:
             actions = '<span class="muted">ships no dataset — nothing to provision</span>'
             folder = esc(p)
@@ -968,9 +968,9 @@ def _provision_panel(sid, s, cwd, provision_status=None):
     return f"""<div class="card wide" style="margin-bottom:1rem">
   <h2 style="margin-top:0;font-size:1.05rem">Problem data ({len(status)} assigned)</h2>
   <p class="muted" style="margin:.2rem 0 .8rem">Provision copies a problem's seeded
-    <span class="mono">data/</span> into <span class="mono">~/workspace/&lt;problem&gt;/data/</span>;
-    reset restores it to the original, discarding candidate edits to that folder. Neither
-    ships solutions, rubrics, or generators.</p>
+    dataset <strong>read-only</strong> into <span class="mono">~/workspace/data/&lt;problem&gt;/</span>
+    (the candidate can read but not overwrite it); reset restores it to the original,
+    discarding candidate edits. Neither ships solutions, rubrics, or generators.</p>
   <table style="margin-bottom:1rem"><thead><tr><th>Problem</th><th></th></tr></thead>
   <tbody>{rows}</tbody></table>
   <div class="row" style="gap:.5rem;align-items:center">

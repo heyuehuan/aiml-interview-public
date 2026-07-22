@@ -35,12 +35,18 @@ From a session's detail page:
 
 - **Workspace files** (`/admin/sessions/<id>/files`) — browse, view, and manage the live
   candidate `workspace` volume: navigate folders, read a file's current contents, remove
-  a file/dir, and provision or reset a problem's seeded `data/`. Every candidate-supplied
+  a file/dir, and provision or reset a problem's seeded dataset. Provisioning lands a
+  problem's dataset **read-only** (dirs `0555`, files `0444`) at
+  `~/workspace/data/<problem_id>/` — one namespaced, collision-free data root that matches
+  the path every `problem.md` advertises; the candidate reads it but can't overwrite or
+  delete it, and reset re-copies the pristine seed. The interviewer's "release starter"
+  full push drops the *writable* working files (`problem.md`, `starter/`) at
+  `~/workspace/<problem_id>/` — never a second copy of the data. Every candidate-supplied
   path is confined to `WORKSPACE_DIR` by realpath (traversal + symlink guard); mutations
   emit `workspace_file_deleted` / `workspace_data_provisioned` / `workspace_data_reset`
   events. Gated to the single live workspace (the active session, or a not-yet-reset
   closed/exported one when nothing else is live). Never surfaces solutions/rubrics — it
-  reads the candidate's own files and provisions only seeded `data/`.
+  reads the candidate's own files and provisions only seeded datasets.
 - **LLM transcript** (`/admin/sessions/<id>/transcript`) — near-real-time reader of
   `llm_transcript.jsonl` (Refresh re-reads the file), with a **source** filter
   (Direct API call / UI playground / Admin test) and a substring search over
