@@ -312,22 +312,37 @@ def _assigned_targets(req, s):
     raise ValueError("that problem isn't assigned to this session")
 
 
+def _no_data_reason(sid, targets, verb):
+    """Accurate reason why a provision/reset copied nothing — never blame activation when
+    the session is already packaged. Priority: not-packaged > ships-no-dataset > other."""
+    if not integrations.session_seed_exists(sid):
+        return "this session's problems aren't packaged yet — re-activate the session to package them"
+    if not any(integrations.problem_has_seed_data(sid, p) for p in targets):
+        which = targets[0] if len(targets) == 1 else "the selected problems"
+        return f"{which} ships no dataset, so there's nothing to {verb}"
+    return f"nothing to {verb} — the seeded data may be unreadable (check the server logs)"
+
+
 def _files_provision(req, sid, who, s):
     targets = _assigned_targets(req, s)
     copied = integrations.copy_problems_to_workspace(sid, targets, data_only=True)
-    model.record_event(sid, who, "workspace_data_provisioned", {"problems": copied})
     if not copied:
-        raise ValueError("nothing to copy — activate the session so its data is packaged first")
-    return f"Provisioned data for {', '.join(copied)}."
+        raise ValueError(_no_data_reason(sid, targets, "provision"))
+    model.record_event(sid, who, "workspace_data_provisioned", {"problems": copied})
+    skipped = [p for p in targets if p not in copied]
+    note = f" (skipped {', '.join(skipped)} — no dataset)" if skipped else ""
+    return f"Provisioned data for {', '.join(copied)}.{note}"
 
 
 def _files_reset(req, sid, who, s):
     targets = _assigned_targets(req, s)
     done = [p for p in targets if integrations.reset_problem_data(sid, p)]
-    model.record_event(sid, who, "workspace_data_reset", {"problems": done})
     if not done:
-        raise ValueError("nothing to reset — activate the session so its data is packaged first")
-    return f"Reset data/ to the seeded original for {', '.join(done)}."
+        raise ValueError(_no_data_reason(sid, targets, "reset"))
+    model.record_event(sid, who, "workspace_data_reset", {"problems": done})
+    skipped = [p for p in targets if p not in done]
+    note = f" (skipped {', '.join(skipped)} — no dataset)" if skipped else ""
+    return f"Reset data/ to the seeded original for {', '.join(done)}.{note}"
 
 
 def _files_wipe(req, sid, who, s):

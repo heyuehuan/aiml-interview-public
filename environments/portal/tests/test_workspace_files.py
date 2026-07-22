@@ -151,3 +151,9 @@ def test_problem_has_seed_data():
     assert integrations.problem_has_seed_data("sess-9", "with-data") is True
     assert integrations.problem_has_seed_data("sess-9", "code-only") is False
     assert integrations.problem_has_seed_data("sess-9", "not-packaged") is False
+
+
+def test_session_seed_exists_distinguishes_packaged_from_not():
+    assert integrations.session_seed_exists("never-activated") is False
+    _seed("sess-pkgd", "p1", {"train.csv": "x"})       # packaging created the seed dir
+    assert integrations.session_seed_exists("sess-pkgd") is True

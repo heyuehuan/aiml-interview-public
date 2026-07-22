@@ -335,6 +335,13 @@ def problem_has_seed_data(session_id, problem_id):
     return os.path.isdir(os.path.join(_session_seed_dir(session_id), problem_id, "data"))
 
 
+def session_seed_exists(session_id):
+    """True once this session's problems have been packaged into the seed (activation's
+    packaging step ran). Distinguishes 'not activated / packaging failed' from 'this
+    problem simply ships no dataset' — so provision/reset errors can say which."""
+    return os.path.isdir(_session_seed_dir(session_id))
+
+
 # --- export / reset ----------------------------------------------------
 def _run_script(name, session_id):
     path = os.path.join(SCRIPTS_DIR, name)
