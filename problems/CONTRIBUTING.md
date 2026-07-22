@@ -15,7 +15,10 @@ guide defines the contract a problem must meet so authoring stays smooth later.
 3. **Visibility is a hard contract.** Anything not under `candidate_paths` never
    reaches a candidate. Statement (`problem.md`), starter code, and the data
    dictionary are candidate-facing; rubric, solution, and generators are not. Write
-   each file for its audience.
+   each file for its audience. Candidate-facing files carry **zero meta content**:
+   no interviewer annotations ("candidate-facing", grading notes) and no platform
+   mechanics (submit/snapshot instructions — the portal covers those). Candidates
+   read under time pressure: keep statements minimal, one example per concept.
 4. **No problem without a rubric.** `rubric.md` must ship with the problem: scoring
    grid, planted pitfalls with the signal they carry, expected trajectory, follow-up
    questions. A problem the rubric can't score doesn't get registered.
