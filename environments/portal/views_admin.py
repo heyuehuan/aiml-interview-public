@@ -567,7 +567,7 @@ def _provision_panel(sid, s, cwd, provision_status=None):
     rows = ""
     for p, has in status:
         if has:
-            actions = (f'<div class="row">{form("provision", p, "Provision")}'
+            actions = (f'<div class="row" style="justify-content:flex-end">{form("provision", p, "Provision")}'
                        f'{form("reset", p, "Reset", confirm=f"Reset {p}/data/ to the seeded original? Candidate edits to that data are lost.")}</div>')
             folder = f'{esc(p)}/data'
         else:
