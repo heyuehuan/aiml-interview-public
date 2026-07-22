@@ -131,22 +131,23 @@ def test_clear_workspace_contents_empties_but_keeps_mount():
     _write("sub/deep/file.txt", "x")
     with open(os.path.join(_WS, ".hidden"), "w") as fh:   # dotfiles included
         fh.write("h")
-    integrations.clear_workspace_contents()
+    removed = integrations.clear_workspace_contents()
+    assert removed == 3                                   # notebook, sub/, .hidden
     assert os.path.isdir(_WS)                             # mount point preserved
     assert os.listdir(_WS) == []                          # everything else gone
 
 
-def test_wipe_and_provision_replaces_everything_with_seed_data():
-    # Candidate cruft (incl. stray root files like the Jul-10 leftovers) + an old problem.
+def test_wipe_does_not_reprovision():
+    # A bare wipe leaves the workspace EMPTY — it must not silently re-copy seed data.
     _write("customers.csv", "stale")
-    _write("Untitled.ipynb", "{}")
-    _write("prob1/data/train.csv", "candidate-edited")
-    _seed("sess-9", "prob1", {"train.csv": "pristine\n", "README.md": "seed"})
+    _seed("sess-9", "prob1", {"train.csv": "pristine\n"})
+    integrations.clear_workspace_contents()
+    assert os.listdir(_WS) == []                          # nothing re-provisioned
 
-    copied = integrations.wipe_and_provision_data("sess-9", ["prob1"])
-    assert copied and copied[0].endswith("prob1")
-    # Stray root files are gone; only the freshly re-provisioned data/ remains.
-    assert not os.path.exists(os.path.join(_WS, "customers.csv"))
-    assert not os.path.exists(os.path.join(_WS, "Untitled.ipynb"))
-    with open(os.path.join(_WS, "prob1", "data", "train.csv")) as fh:
-        assert fh.read() == "pristine\n"                  # restored from seed, not the edit
+
+def test_problem_has_seed_data():
+    _seed("sess-9", "with-data", {"train.csv": "x"})
+    os.makedirs(os.path.join(_SEED, "sess-9", "code-only"), exist_ok=True)  # no data/ dir
+    assert integrations.problem_has_seed_data("sess-9", "with-data") is True
+    assert integrations.problem_has_seed_data("sess-9", "code-only") is False
+    assert integrations.problem_has_seed_data("sess-9", "not-packaged") is False

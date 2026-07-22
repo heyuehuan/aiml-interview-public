@@ -309,10 +309,12 @@ def clear_workspace_contents():
     """Remove everything under WORKSPACE_DIR (dotfiles included) but keep the mount point
     itself. Confined to WORKSPACE_DIR — never removes the directory or anything outside.
     This is the in-container equivalent of the reset script's wipe, usable mid-session
-    (the script is export-gated and lifecycle-only)."""
+    (the script is export-gated and lifecycle-only). Returns the count of top-level
+    entries removed."""
     base = os.path.realpath(WORKSPACE_DIR)
     if not os.path.isdir(base):
-        return
+        return 0
+    removed = 0
     for name in os.listdir(base):
         p = os.path.join(base, name)
         try:
@@ -320,16 +322,17 @@ def clear_workspace_contents():
                 shutil.rmtree(p, ignore_errors=True)
             else:
                 os.remove(p)
+            removed += 1
         except OSError:
             pass
+    return removed
 
 
-def wipe_and_provision_data(session_id, problem_ids):
-    """Full workspace reset-to-clean: clear ALL workspace contents (candidate notebooks,
-    code, stray files included), then re-provision the assigned problems' ``data/`` from
-    the seed. Returns the list of problems re-provisioned."""
-    clear_workspace_contents()
-    return copy_problems_to_workspace(session_id, problem_ids, data_only=True)
+def problem_has_seed_data(session_id, problem_id):
+    """True if this problem ships a candidate dataset — a ``data/`` dir in the session
+    seed. Some problems (e.g. a code-only exercise) ship none, so there is simply
+    nothing to provision or reset for them; the UI shows that rather than hiding them."""
+    return os.path.isdir(os.path.join(_session_seed_dir(session_id), problem_id, "data"))
 
 
 # --- export / reset ----------------------------------------------------

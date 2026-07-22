@@ -924,14 +924,17 @@ def _crumbs(sid, rel):
     return '<span class="muted mono"> / </span>'.join(out)
 
 
-def _provision_panel(sid, s, cwd):
-    """Per-problem provision / reset controls for the session's assigned problem data,
-    plus the whole-workspace actions (provision-all, reset-all, and the destructive
-    wipe-and-re-provision)."""
-    assigned = s["problem_ids"] or []
-    if not assigned:
+def _provision_panel(sid, s, cwd, provision_status=None):
+    """Per-problem provision / reset controls for ALL of the session's assigned problems.
+    A problem that ships no dataset (no ``data/`` in the seed) is listed and labelled as
+    such — never silently dropped. ``provision_status`` is a list of (problem_id, has_data).
+    """
+    status = provision_status if provision_status is not None else \
+        [(p, True) for p in (s["problem_ids"] or [])]
+    if not status:
         return ""
     cwd_h = f'<input type="hidden" name="cwd" value="{esc(cwd)}">'
+    any_data = any(has for _, has in status)
 
     def form(action, pid, label, cls="secondary", confirm=None):
         cls_attr, extra = _confirm_attrs(cls, confirm)
@@ -940,31 +943,38 @@ def _provision_panel(sid, s, cwd):
                 f'<button class="{cls_attr}" style="margin-top:0;padding:.3rem .7rem"{extra} '
                 f'type="submit">{esc(label)}</button></form>')
 
-    rows = "".join(
-        f'<tr><td class="mono">{esc(p)}/data</td><td><div class="row" style="gap:.4rem">'
-        f'{form("provision", p, "Provision")}'
-        f'{form("reset", p, "Reset", confirm=f"Reset {p}/data/ to the seeded original? Candidate edits to that data are lost.")}'
-        f'</div></td></tr>'
-        for p in assigned)
+    rows = ""
+    for p, has in status:
+        if has:
+            actions = (f'<div class="row" style="gap:.4rem">{form("provision", p, "Provision")}'
+                       f'{form("reset", p, "Reset", confirm=f"Reset {p}/data/ to the seeded original? Candidate edits to that data are lost.")}</div>')
+            folder = f'{esc(p)}/data'
+        else:
+            actions = '<span class="muted">ships no dataset — nothing to provision</span>'
+            folder = esc(p)
+        rows += f'<tr><td class="mono">{folder}</td><td>{actions}</td></tr>'
+
+    bulk = ""
+    if any_data:
+        bulk = (f'{form("provision", "all", "Provision all")}'
+                f'{form("reset", "all", "Reset all data", confirm="Reset ALL assigned problem data/ to the seeded original? Candidate edits to data/ are lost.")}')
 
     wipe = (f'<form class="inline" method="post" action="/admin/sessions/{sid}/files/wipe">{cwd_h}'
             f'<button class="danger js-confirm" style="margin-top:0" '
-            f'data-confirm="WIPE the entire workspace — deleting the candidate\'s notebooks, code, '
-            f'and every file — then re-provision only the assigned problems\' data/? '
-            f'This cannot be undone." type="submit">Wipe workspace &amp; re-provision</button></form>')
+            f'data-confirm="WIPE the entire workspace — delete the candidate\'s notebooks, code, and '
+            f'every file. This does NOT re-provision anything; the workspace will be empty. '
+            f'This cannot be undone." type="submit">Wipe workspace</button></form>')
 
     return f"""<div class="card wide" style="margin-bottom:1rem">
-  <h2 style="margin-top:0;font-size:1.05rem">Problem data</h2>
+  <h2 style="margin-top:0;font-size:1.05rem">Problem data ({len(status)} assigned)</h2>
   <p class="muted" style="margin:.2rem 0 .8rem">Provision copies a problem's seeded
     <span class="mono">data/</span> into <span class="mono">~/workspace/&lt;problem&gt;/data/</span>;
     reset restores it to the original, discarding candidate edits to that folder. Neither
     ships solutions, rubrics, or generators.</p>
-  <table style="margin-bottom:1rem"><thead><tr><th>Folder</th><th></th></tr></thead>
+  <table style="margin-bottom:1rem"><thead><tr><th>Problem</th><th></th></tr></thead>
   <tbody>{rows}</tbody></table>
   <div class="row" style="gap:.5rem;align-items:center">
-    {form("provision", "all", "Provision all")}
-    {form("reset", "all", "Reset all data",
-          confirm="Reset ALL assigned problem data/ to the seeded original? Candidate edits to data/ are lost.")}
+    {bulk}
     <span class="muted" style="margin:0 .3rem">·</span>
     {wipe}
   </div>
@@ -988,7 +998,8 @@ def _file_row(sid, e):
 
 
 def admin_files_page(admin, s, listing=None, view=None, available=True,
-                     unavailable_reason=None, error=None, notice=None):
+                     unavailable_reason=None, error=None, notice=None,
+                     provision_status=None):
     sid = esc(s["id"])
     head = f"""
 <div class="row" style="justify-content:space-between;margin-bottom:1rem">
@@ -1030,7 +1041,7 @@ def admin_files_page(admin, s, listing=None, view=None, available=True,
     rows = "".join(_file_row(sid, e) for e in listing["entries"]) or \
         '<tr><td colspan="4" class="muted">Empty folder.</td></tr>'
     body = f"""{head}{banners}
-{_provision_panel(sid, s, cwd)}
+{_provision_panel(sid, s, cwd, provision_status)}
 <p style="margin:0 0 .6rem">{_crumbs(sid, cwd)}</p>
 <div class="card wide">
   <table><thead><tr><th>Name</th><th>Size</th><th>Modified (UTC)</th><th></th></tr></thead>

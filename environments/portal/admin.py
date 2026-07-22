@@ -263,9 +263,13 @@ def files(req, sid):
         except ValueError as exc:
             error = error or str(exc)
             listing = integrations.list_workspace("")
+    # Per-assigned-problem: does it ship a dataset the admin can provision/reset? A
+    # problem with no data/ (e.g. a code-only exercise) is shown as such, not hidden.
+    provision_status = [(pid, integrations.problem_has_seed_data(sid, pid))
+                        for pid in (s["problem_ids"] or [])]
     return Response.html(views.admin_files_page(
         who, s, listing=listing, view=view, available=ok, unavailable_reason=reason,
-        error=error, notice=req.query.get("notice")))
+        error=error, notice=req.query.get("notice"), provision_status=provision_status))
 
 
 def _files_action(fn):
@@ -327,12 +331,12 @@ def _files_reset(req, sid, who, s):
 
 
 def _files_wipe(req, sid, who, s):
-    """Full workspace reset-to-clean: destroys ALL candidate files, then re-provisions the
-    assigned problems' data/. Destructive — the UI routes it through the confirm overlay."""
-    copied = integrations.wipe_and_provision_data(sid, s["problem_ids"] or [])
-    model.record_event(sid, who, "workspace_wiped", {"reprovisioned": copied})
-    tail = f" re-provisioned data for {', '.join(copied)}." if copied else " (no problem data to re-provision)."
-    return "Workspace wiped;" + tail
+    """Wipe the workspace — delete ALL candidate files, full stop. Does NOT re-provision;
+    provisioning problem data is a separate action. Destructive — the UI routes it through
+    the confirm overlay."""
+    n = integrations.clear_workspace_contents()
+    model.record_event(sid, who, "workspace_wiped", {"removed": n})
+    return f"Workspace wiped — removed {n} item(s). It is now empty; provision problem data separately if you want it back."
 
 
 router.add("POST", "/admin/sessions/<sid>/files/delete", _files_action(_files_delete))
