@@ -12,8 +12,10 @@ import pytest
 # Point WORKSPACE_DIR (and the other dirs integrations reads at import) at throwaways
 # BEFORE importing the module — its module-level constants capture env at import time.
 _WS = tempfile.mkdtemp(prefix="ws-files-test-")
+_SEED = tempfile.mkdtemp(prefix="ws-files-seed-")
 os.environ["WORKSPACE_DIR"] = _WS
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="ws-files-data-")
+os.environ["PROBLEMS_SEED_DIR"] = _SEED
 os.environ.setdefault("PORTAL_SECRET", "test-secret")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -113,3 +115,38 @@ def test_delete_root_refused():
 def test_delete_missing_raises():
     with pytest.raises(ValueError):
         integrations.delete_workspace_path("nope.txt")
+
+
+# --- wipe / reset-to-clean --------------------------------------------------
+def _seed(sid, pid, files):
+    for rel, content in files.items():
+        p = os.path.join(_SEED, sid, pid, "data", rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as fh:
+            fh.write(content)
+
+
+def test_clear_workspace_contents_empties_but_keeps_mount():
+    _write("notebook.ipynb", "{}")
+    _write("sub/deep/file.txt", "x")
+    with open(os.path.join(_WS, ".hidden"), "w") as fh:   # dotfiles included
+        fh.write("h")
+    integrations.clear_workspace_contents()
+    assert os.path.isdir(_WS)                             # mount point preserved
+    assert os.listdir(_WS) == []                          # everything else gone
+
+
+def test_wipe_and_provision_replaces_everything_with_seed_data():
+    # Candidate cruft (incl. stray root files like the Jul-10 leftovers) + an old problem.
+    _write("customers.csv", "stale")
+    _write("Untitled.ipynb", "{}")
+    _write("prob1/data/train.csv", "candidate-edited")
+    _seed("sess-9", "prob1", {"train.csv": "pristine\n", "README.md": "seed"})
+
+    copied = integrations.wipe_and_provision_data("sess-9", ["prob1"])
+    assert copied and copied[0].endswith("prob1")
+    # Stray root files are gone; only the freshly re-provisioned data/ remains.
+    assert not os.path.exists(os.path.join(_WS, "customers.csv"))
+    assert not os.path.exists(os.path.join(_WS, "Untitled.ipynb"))
+    with open(os.path.join(_WS, "prob1", "data", "train.csv")) as fh:
+        assert fh.read() == "pristine\n"                  # restored from seed, not the edit

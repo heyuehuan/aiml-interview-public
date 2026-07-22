@@ -323,12 +323,22 @@ def _files_reset(req, sid, who, s):
     model.record_event(sid, who, "workspace_data_reset", {"problems": done})
     if not done:
         raise ValueError("nothing to reset — activate the session so its data is packaged first")
-    return f"Reset data to the seeded original for {', '.join(done)}."
+    return f"Reset data/ to the seeded original for {', '.join(done)}."
+
+
+def _files_wipe(req, sid, who, s):
+    """Full workspace reset-to-clean: destroys ALL candidate files, then re-provisions the
+    assigned problems' data/. Destructive — the UI routes it through the confirm overlay."""
+    copied = integrations.wipe_and_provision_data(sid, s["problem_ids"] or [])
+    model.record_event(sid, who, "workspace_wiped", {"reprovisioned": copied})
+    tail = f" re-provisioned data for {', '.join(copied)}." if copied else " (no problem data to re-provision)."
+    return "Workspace wiped;" + tail
 
 
 router.add("POST", "/admin/sessions/<sid>/files/delete", _files_action(_files_delete))
 router.add("POST", "/admin/sessions/<sid>/files/provision", _files_action(_files_provision))
 router.add("POST", "/admin/sessions/<sid>/files/reset", _files_action(_files_reset))
+router.add("POST", "/admin/sessions/<sid>/files/wipe", _files_action(_files_wipe))
 
 
 @router.route("POST", "/admin/sessions/<sid>/moderate/<pid>")
@@ -436,6 +446,13 @@ def _activate(req, sid, who):
     integrations.preflight_activate(s)
     s = model.activate(sid, actor=who)
     try:
+        # Fresh activation = a new candidate → clean slate. Wipe any leftovers from a
+        # prior session BEFORE provisioning: `reset` is manual and export-gated, so
+        # without this a workspace that was never reset carries the last candidate's
+        # files into the next interview. Reactivate (resume) does
+        # NOT wipe — that path keeps the same candidate's work.
+        integrations.clear_workspace_contents()
+        model.record_event(sid, who, "workspace_cleaned_on_activate")
         integrations.on_activate(s)
     except Exception as exc:
         model.rollback_activation(sid, actor=who, reason=str(exc))

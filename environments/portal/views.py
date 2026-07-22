@@ -925,28 +925,48 @@ def _crumbs(sid, rel):
 
 
 def _provision_panel(sid, s, cwd):
-    """Provision / reset controls for the session's assigned problem data."""
+    """Per-problem provision / reset controls for the session's assigned problem data,
+    plus the whole-workspace actions (provision-all, reset-all, and the destructive
+    wipe-and-re-provision)."""
     assigned = s["problem_ids"] or []
     if not assigned:
         return ""
-    opts = '<option value="all">all assigned problems</option>' + "".join(
-        f'<option value="{esc(p)}">{esc(p)}</option>' for p in assigned)
     cwd_h = f'<input type="hidden" name="cwd" value="{esc(cwd)}">'
+
+    def form(action, pid, label, cls="secondary", confirm=None):
+        cls_attr, extra = _confirm_attrs(cls, confirm)
+        return (f'<form class="inline" method="post" action="/admin/sessions/{sid}/files/{action}">'
+                f'{cwd_h}<input type="hidden" name="problem_id" value="{esc(pid)}">'
+                f'<button class="{cls_attr}" style="margin-top:0;padding:.3rem .7rem"{extra} '
+                f'type="submit">{esc(label)}</button></form>')
+
+    rows = "".join(
+        f'<tr><td class="mono">{esc(p)}/data</td><td><div class="row" style="gap:.4rem">'
+        f'{form("provision", p, "Provision")}'
+        f'{form("reset", p, "Reset", confirm=f"Reset {p}/data/ to the seeded original? Candidate edits to that data are lost.")}'
+        f'</div></td></tr>'
+        for p in assigned)
+
+    wipe = (f'<form class="inline" method="post" action="/admin/sessions/{sid}/files/wipe">{cwd_h}'
+            f'<button class="danger js-confirm" style="margin-top:0" '
+            f'data-confirm="WIPE the entire workspace — deleting the candidate\'s notebooks, code, '
+            f'and every file — then re-provision only the assigned problems\' data/? '
+            f'This cannot be undone." type="submit">Wipe workspace &amp; re-provision</button></form>')
+
     return f"""<div class="card wide" style="margin-bottom:1rem">
   <h2 style="margin-top:0;font-size:1.05rem">Problem data</h2>
-  <p class="muted" style="margin:.2rem 0 .8rem">Provision copies each problem's seeded
-    <span class="mono">data/</span> into the workspace; reset restores it to the original,
-    discarding candidate edits. Neither ships solutions, rubrics, or generators.</p>
-  <div class="row" style="align-items:flex-end;gap:.6rem">
-    <div><label for="pdp" style="margin-top:0">Problem</label>
-      <select id="pdp" name="problem_id" form="prov-form" class="pg">{opts}</select></div>
-    <form id="prov-form" class="inline" method="post" action="/admin/sessions/{sid}/files/provision">{cwd_h}
-      <button class="secondary" type="submit" style="margin-top:0">Provision data</button></form>
-    <form class="inline" method="post" action="/admin/sessions/{sid}/files/reset">{cwd_h}
-      <input type="hidden" name="problem_id" value="all">
-      <button class="secondary js-confirm" style="margin-top:0"
-        data-confirm="Reset ALL assigned problem data to the seeded original? Candidate edits to data/ are lost."
-        type="submit">Reset all data</button></form>
+  <p class="muted" style="margin:.2rem 0 .8rem">Provision copies a problem's seeded
+    <span class="mono">data/</span> into <span class="mono">~/workspace/&lt;problem&gt;/data/</span>;
+    reset restores it to the original, discarding candidate edits to that folder. Neither
+    ships solutions, rubrics, or generators.</p>
+  <table style="margin-bottom:1rem"><thead><tr><th>Folder</th><th></th></tr></thead>
+  <tbody>{rows}</tbody></table>
+  <div class="row" style="gap:.5rem;align-items:center">
+    {form("provision", "all", "Provision all")}
+    {form("reset", "all", "Reset all data",
+          confirm="Reset ALL assigned problem data/ to the seeded original? Candidate edits to data/ are lost.")}
+    <span class="muted" style="margin:0 .3rem">·</span>
+    {wipe}
   </div>
 </div>"""
 
