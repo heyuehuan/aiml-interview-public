@@ -40,6 +40,16 @@ def _session_key() -> Optional[str]:
     return key if isinstance(key, str) and key else None
 
 
+def is_session_key(api_key: Optional[str]) -> bool:
+    """True if this key is the live per-session candidate key — i.e. the
+    request came from the candidate's own workspace rather than a server-side/master-key
+    caller (the portal playground or admin test). Used to attribute transcript entries to
+    a trustworthy source: a candidate can be tagged 'api' authoritatively and can never
+    forge a 'ui' tag, because they never hold the master key."""
+    sk = _session_key()
+    return bool(sk and api_key and hmac.compare_digest(api_key, sk))
+
+
 def get_allowed_keys() -> set:
     """
     Get the set of allowed API keys from environment variables,

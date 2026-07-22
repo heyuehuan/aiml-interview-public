@@ -97,13 +97,19 @@ def _append(entry):
 
 
 def record(*, endpoint, model, messages=None, prompt=None, response_text=None,
-           usage=None, stream=False, latency_ms=None, error=None):
-    """Append one completion to the active session's transcript. Never raises."""
+           usage=None, stream=False, latency_ms=None, error=None, source=None):
+    """Append one completion to the active session's transcript. Never raises.
+
+    ``source`` attributes the call: "api" for a candidate's direct workspace call, "ui"
+    for the portal Gemini playground, "admin-test" for the admin health check. The proxy
+    derives it from *which key* authenticated the request, not from candidate-settable
+    input, so it can't be spoofed (see auth.is_session_key)."""
     try:
         entry = {
             "ts": _now_iso(),
             "session_id": active_session_id(),
             "endpoint": endpoint,
+            "source": source or "api",
             "model": model,
             "stream": bool(stream),
             "latency_ms": latency_ms,
@@ -146,7 +152,8 @@ def usage_of(response):
         return None
 
 
-async def tee_stream(chunks, *, endpoint, model, messages=None, prompt=None, started):
+async def tee_stream(chunks, *, endpoint, model, messages=None, prompt=None, started,
+                     source=None):
     """Wrap a streaming response so the transcript still captures what was said.
 
     Yields every chunk through untouched, accumulating the assistant deltas, and writes a
@@ -163,7 +170,7 @@ async def tee_stream(chunks, *, endpoint, model, messages=None, prompt=None, sta
     finally:
         record(endpoint=endpoint, model=model, messages=messages, prompt=prompt,
                response_text="".join(p for p in parts if p), stream=True,
-               latency_ms=int((time.monotonic() - started) * 1000))
+               latency_ms=int((time.monotonic() - started) * 1000), source=source)
 
 
 def _delta_text(chunk):

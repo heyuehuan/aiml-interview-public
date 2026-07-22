@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import html
 import json
+import urllib.parse
+from datetime import datetime, timezone
 
 # Default terms: confidentiality, monitoring notice, code of conduct,
 # IT integrity. Admin may override per session (stored on the session row).
@@ -738,6 +740,10 @@ def admin_session_detail(admin, s, moderation=None, notice=None, reactivate=None
 <div class="row" style="justify-content:space-between;margin-bottom:1rem">
   <a class="btn secondary" href="/admin">← All sessions</a>
   {_state_pill(s['state'])}</div>
+<div class="row" style="margin-bottom:1rem">
+  <a class="btn secondary" href="/admin/sessions/{sid}/files">📁 Workspace files</a>
+  <a class="btn secondary" href="/admin/sessions/{sid}/transcript">💬 LLM transcript</a>
+</div>
 <div class="card wide"><table>{rows}</table></div>
 <div class="card wide" style="margin-top:1.2rem"><div class="row">{actions}</div></div>
 {_moderation_panel(sid, s, moderation)}
@@ -802,3 +808,213 @@ def _actions_for(s, sid, reactivate=None):
         out.append(btn("delete", "Delete", "danger",
                        "Permanently delete this session and its records? This cannot be undone."))
     return "".join(out) or '<span class="muted">No actions in this state.</span>'
+
+
+# --- LLM transcript viewer --------------------------------------------------
+_SOURCE_LABELS = {"api": "Direct API call", "ui": "UI playground", "admin-test": "Admin test",
+                  "server": "Server-side"}
+
+
+def _fmt_ts(ts):
+    """ISO-ish timestamp string, shown as-is (already UTC, seconds precision)."""
+    return esc((ts or "").replace("T", " ").replace("+00:00", "Z"))
+
+
+def _fmt_epoch(epoch):
+    try:
+        return esc(datetime.fromtimestamp(float(epoch), timezone.utc)
+                   .isoformat(timespec="seconds").replace("+00:00", "Z"))
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _fmt_bytes(n):
+    n = float(n or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{int(n)} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+def _source_pill(src):
+    src = src or "api"
+    label = _SOURCE_LABELS.get(src, src)
+    cls = {"api": "state-active", "ui": "state-created", "admin-test": "state-exported"}.get(src, "")
+    return f'<span class="pill {cls}">{esc(label)}</span>'
+
+
+def _transcript_entry(e):
+    src = e.get("source") or "api"
+    head_bits = [_source_pill(src), f'<span class="mono muted">{_fmt_ts(e.get("ts"))}</span>',
+                 f'<span class="pill mono">{esc(e.get("model") or "?")}</span>']
+    if e.get("stream"):
+        head_bits.append('<span class="pill">stream</span>')
+    if e.get("latency_ms") is not None:
+        head_bits.append(f'<span class="muted">{esc(e["latency_ms"])} ms</span>')
+    u = e.get("usage") or {}
+    if u:
+        toks = u.get("total_tokens")
+        if toks is None:
+            toks = (u.get("prompt_tokens") or 0) + (u.get("completion_tokens") or 0)
+        head_bits.append(f'<span class="muted">{esc(toks)} tok</span>')
+
+    def block(label, text):
+        return (f'<p class="codelabel">{esc(label)}</p>'
+                f'<pre class="code" style="white-space:pre-wrap">{esc(text)}</pre>')
+
+    parts = []
+    for m in e.get("messages") or []:
+        if isinstance(m, dict):
+            parts.append(block(m.get("role") or "message", m.get("content") or ""))
+    if e.get("prompt"):
+        parts.append(block("prompt", e["prompt"]))
+    if e.get("response"):
+        parts.append(block("response", e["response"]))
+    if e.get("error"):
+        parts.append(f'<div class="err" style="margin-top:.6rem">{esc(e["error"])}</div>')
+    return (f'<div class="card wide" style="margin-bottom:.9rem">'
+            f'<div class="row" style="gap:.5rem;flex-wrap:wrap">{"".join(head_bits)}</div>'
+            f'{"".join(parts)}</div>')
+
+
+def admin_transcript_page(admin, s, data, source=None, query=None):
+    sid = esc(s["id"])
+    entries = data["entries"]
+    # Source filter dropdown: the sources actually present, plus the current selection.
+    known = list(dict.fromkeys(list(data["sources"]) + ([source] if source else [])))
+    opts = ['<option value="">All sources</option>']
+    for src in known:
+        sel = " selected" if src == source else ""
+        opts.append(f'<option value="{esc(src)}"{sel}>{esc(_SOURCE_LABELS.get(src, src))}</option>')
+    shown, total = data["shown"], data["total"]
+    cap_note = (f' (showing latest {shown})' if shown < total else "")
+    summary = f'{total} call{"s" if total != 1 else ""} match{"" if total == 1 else "es"}{cap_note}.'
+    body = "".join(_transcript_entry(e) for e in entries) or \
+        '<div class="card wide"><p class="muted">No LLM calls recorded for this session yet.</p></div>'
+    return page(f"Transcript — {s['candidate_name']}", f"""
+<div class="row" style="justify-content:space-between;margin-bottom:1rem">
+  <a class="btn secondary" href="/admin/sessions/{sid}">← Session</a>
+  <a class="btn secondary" href="/admin/sessions/{sid}/transcript">↻ Refresh</a>
+</div>
+<div class="card wide" style="margin-bottom:1rem">
+  <form method="get" action="/admin/sessions/{sid}/transcript" class="row" style="align-items:flex-end;gap:.8rem">
+    <div><label for="src" style="margin-top:0">Source</label>
+      <select id="src" name="source" class="pg">{"".join(opts)}</select></div>
+    <div style="flex:1;min-width:12rem"><label for="q" style="margin-top:0">Search text</label>
+      <input type="text" id="q" name="q" value="{esc(query or "")}" placeholder="prompt or response contains…"></div>
+    <button type="submit">Apply</button>
+    <a class="btn secondary" href="/admin/sessions/{sid}/transcript">Clear</a>
+  </form>
+  <p class="muted" style="margin:.6rem 0 0">{esc(summary)} Source is attributed by the proxy:
+    <b>Direct API call</b> = the candidate's own workspace call, <b>UI playground</b> = the
+    portal Gemini box. A plain Refresh re-reads the live transcript.</p>
+</div>
+{body}""")
+
+
+# --- candidate workspace file manager ---------------------------------------
+def _crumbs(sid, rel):
+    """Clickable breadcrumb path back to the workspace root."""
+    out = [f'<a href="/admin/sessions/{sid}/files">~/workspace</a>']
+    acc = []
+    for part in [p for p in (rel or "").split("/") if p]:
+        acc.append(part)
+        href = f"/admin/sessions/{sid}/files?path={urllib.parse.quote('/'.join(acc))}"
+        out.append(f'<a href="{href}">{esc(part)}</a>')
+    return '<span class="muted mono"> / </span>'.join(out)
+
+
+def _provision_panel(sid, s, cwd):
+    """Provision / reset controls for the session's assigned problem data."""
+    assigned = s["problem_ids"] or []
+    if not assigned:
+        return ""
+    opts = '<option value="all">all assigned problems</option>' + "".join(
+        f'<option value="{esc(p)}">{esc(p)}</option>' for p in assigned)
+    cwd_h = f'<input type="hidden" name="cwd" value="{esc(cwd)}">'
+    return f"""<div class="card wide" style="margin-bottom:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">Problem data</h2>
+  <p class="muted" style="margin:.2rem 0 .8rem">Provision copies each problem's seeded
+    <span class="mono">data/</span> into the workspace; reset restores it to the original,
+    discarding candidate edits. Neither ships solutions, rubrics, or generators.</p>
+  <div class="row" style="align-items:flex-end;gap:.6rem">
+    <div><label for="pdp" style="margin-top:0">Problem</label>
+      <select id="pdp" name="problem_id" form="prov-form" class="pg">{opts}</select></div>
+    <form id="prov-form" class="inline" method="post" action="/admin/sessions/{sid}/files/provision">{cwd_h}
+      <button class="secondary" type="submit" style="margin-top:0">Provision data</button></form>
+    <form class="inline" method="post" action="/admin/sessions/{sid}/files/reset">{cwd_h}
+      <input type="hidden" name="problem_id" value="all">
+      <button class="secondary js-confirm" style="margin-top:0"
+        data-confirm="Reset ALL assigned problem data to the seeded original? Candidate edits to data/ are lost."
+        type="submit">Reset all data</button></form>
+  </div>
+</div>"""
+
+
+def _file_row(sid, e):
+    icon = "📁" if e["is_dir"] else "📄"
+    href = f"/admin/sessions/{sid}/files?path={urllib.parse.quote(e['rel'])}"
+    name = (f'<a href="{href}">{icon} {esc(e["name"])}{"/" if e["is_dir"] else ""}</a>')
+    size = "—" if e["is_dir"] else _fmt_bytes(e["size"])
+    parent = e["rel"].rsplit("/", 1)[0] if "/" in e["rel"] else ""
+    del_form = (f'<form class="inline" method="post" action="/admin/sessions/{sid}/files/delete">'
+                f'<input type="hidden" name="path" value="{esc(e["rel"])}">'
+                f'<input type="hidden" name="cwd" value="{esc(parent)}">'
+                f'<button class="danger secondary js-confirm" style="margin-top:0;padding:.25rem .6rem"'
+                f' data-confirm="Delete {esc(e["name"])}{"/ and everything in it" if e["is_dir"] else ""} from the workspace?"'
+                f' type="submit">Remove</button></form>')
+    return (f'<tr><td>{name}</td><td class="mono muted">{size}</td>'
+            f'<td class="mono muted">{_fmt_epoch(e["mtime"])}</td><td>{del_form}</td></tr>')
+
+
+def admin_files_page(admin, s, listing=None, view=None, available=True,
+                     unavailable_reason=None, error=None, notice=None):
+    sid = esc(s["id"])
+    head = f"""
+<div class="row" style="justify-content:space-between;margin-bottom:1rem">
+  <a class="btn secondary" href="/admin/sessions/{sid}">← Session</a>
+  <a class="btn secondary" href="/admin/sessions/{sid}/files">↻ Refresh</a>
+</div>"""
+    banners = ""
+    if notice:
+        banners += f'<div class="ok">{esc(notice)}</div>'
+    if error:
+        banners += f'<div class="err">{esc(error)}</div>'
+
+    if not available:
+        body = (f'{head}{banners}<div class="card wide"><p class="muted">The workspace isn\'t '
+                f'available for this session — {esc(unavailable_reason or "not provisioned")}.</p></div>')
+        return page(f"Files — {s['candidate_name']}", body)
+
+    if view is not None:
+        rel = view["rel"]
+        parent = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        back = f"/admin/sessions/{sid}/files?path={urllib.parse.quote(parent)}"
+        meta = f'{_fmt_bytes(view["size"])}{" · truncated" if view.get("truncated") else ""}'
+        if view["binary"]:
+            content = '<p class="muted">Binary file — not shown.</p>'
+        else:
+            content = f'<pre class="code" style="white-space:pre-wrap;max-height:70vh;overflow:auto">{esc(view["text"])}</pre>'
+        body = f"""{head}{banners}
+<p style="margin:0 0 .6rem">{_crumbs(sid, rel)}</p>
+<div class="card wide">
+  <div class="row prob-head"><h2 style="margin:.1rem 0;font-size:1.05rem" class="mono">{esc(rel)}</h2>
+    <span class="muted mono">{esc(meta)}</span></div>
+  <div style="margin-top:.8rem">{content}</div>
+  <div class="row" style="margin-top:1rem"><a class="btn secondary" href="{back}">← Back to folder</a></div>
+</div>"""
+        return page(f"Files — {s['candidate_name']}", body)
+
+    listing = listing or {"path": "", "entries": []}
+    cwd = listing.get("path", "")
+    rows = "".join(_file_row(sid, e) for e in listing["entries"]) or \
+        '<tr><td colspan="4" class="muted">Empty folder.</td></tr>'
+    body = f"""{head}{banners}
+{_provision_panel(sid, s, cwd)}
+<p style="margin:0 0 .6rem">{_crumbs(sid, cwd)}</p>
+<div class="card wide">
+  <table><thead><tr><th>Name</th><th>Size</th><th>Modified (UTC)</th><th></th></tr></thead>
+  <tbody>{rows}</tbody></table>
+</div>
+{_confirm_modal()}"""
+    return page(f"Files — {s['candidate_name']}", body)

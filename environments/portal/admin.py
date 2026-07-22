@@ -201,6 +201,136 @@ def detail(req, sid):
         reactivate=reactivate))
 
 
+# --- LLM transcript viewer --------------------------------------------------
+@router.route("GET", "/admin/sessions/<sid>/transcript")
+def transcript_view(req, sid):
+    """Near-real-time transcript reader: reloads the on-disk JSONL each request (a plain
+    Refresh re-reads), with source and substring filters. Source is the proxy's tamper-
+    proof attribution — 'api' = candidate's direct workspace call, 'ui' = Gemini
+    playground, 'admin-test' = the admin health check."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    source = (req.query.get("source") or "").strip() or None
+    query = (req.query.get("q") or "").strip() or None
+    data = model.read_transcript(sid, source=source, query=query, limit=500)
+    return Response.html(views.admin_transcript_page(who, s, data, source=source, query=query))
+
+
+# --- candidate workspace file manager ---------------------------------------
+def _workspace_available(s):
+    """Whether the live `workspace` volume can be attributed to this session. It is a
+    single shared volume for the one candidate at a time: certain for the active session,
+    and — until reset, and only while nothing else is live — for a closed/exported one."""
+    if s["state"] == "active":
+        return True, None
+    live = model.active_session()
+    if live and live["id"] != s["id"]:
+        return False, f"the workspace now belongs to {live['candidate_name']}'s live session"
+    if s["state"] in ("closed", "exported"):
+        return True, None
+    if s["state"] == "reset":
+        return False, "this workspace was reset for the next candidate"
+    return False, "the workspace isn't provisioned until the session is activated"
+
+
+@router.route("GET", "/admin/sessions/<sid>/files")
+def files(req, sid):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    ok, reason = _workspace_available(s)
+    rel = req.query.get("path", "")
+    error = req.query.get("error")
+    listing = view = None
+    if ok:
+        try:
+            probe = integrations.list_workspace(rel)
+            if probe.get("is_file"):
+                view = integrations.read_workspace_file(rel)
+            else:
+                listing = probe
+        except ValueError as exc:
+            error = error or str(exc)
+            listing = integrations.list_workspace("")
+    return Response.html(views.admin_files_page(
+        who, s, listing=listing, view=view, available=ok, unavailable_reason=reason,
+        error=error, notice=req.query.get("notice")))
+
+
+def _files_action(fn):
+    """Shared plumbing for the workspace mutating actions: auth, sid check, the single-
+    tenant availability gate, then redirect back to the current dir with a notice/error."""
+    def handler(req, sid):
+        who, redirect = _require(req)
+        if redirect:
+            return redirect
+        if _bad_sid(sid):
+            return Response.not_found()
+        s = model.get_session(sid)
+        if not s:
+            return Response.not_found()
+        cwd = req.form.get("cwd", "")
+        try:
+            ok, reason = _workspace_available(s)
+            if not ok:
+                raise ValueError(reason)
+            notice = fn(req, sid, who, s)
+            return Response.redirect(f"/admin/sessions/{sid}/files?path={_q(cwd)}&notice={_q(notice)}")
+        except ValueError as exc:
+            return Response.redirect(f"/admin/sessions/{sid}/files?path={_q(cwd)}&error={_q(str(exc))}")
+    return handler
+
+
+def _files_delete(req, sid, who, s):
+    deleted = integrations.delete_workspace_path(req.form.get("path", ""))
+    model.record_event(sid, who, "workspace_file_deleted", {"path": deleted})
+    return f"Removed {deleted}."
+
+
+def _assigned_targets(req, s):
+    pid = (req.form.get("problem_id") or "").strip()
+    assigned = s["problem_ids"] or []
+    if pid in ("", "all"):
+        return assigned
+    if pid in assigned:
+        return [pid]
+    raise ValueError("that problem isn't assigned to this session")
+
+
+def _files_provision(req, sid, who, s):
+    targets = _assigned_targets(req, s)
+    copied = integrations.copy_problems_to_workspace(sid, targets, data_only=True)
+    model.record_event(sid, who, "workspace_data_provisioned", {"problems": copied})
+    if not copied:
+        raise ValueError("nothing to copy — activate the session so its data is packaged first")
+    return f"Provisioned data for {', '.join(copied)}."
+
+
+def _files_reset(req, sid, who, s):
+    targets = _assigned_targets(req, s)
+    done = [p for p in targets if integrations.reset_problem_data(sid, p)]
+    model.record_event(sid, who, "workspace_data_reset", {"problems": done})
+    if not done:
+        raise ValueError("nothing to reset — activate the session so its data is packaged first")
+    return f"Reset data to the seeded original for {', '.join(done)}."
+
+
+router.add("POST", "/admin/sessions/<sid>/files/delete", _files_action(_files_delete))
+router.add("POST", "/admin/sessions/<sid>/files/provision", _files_action(_files_provision))
+router.add("POST", "/admin/sessions/<sid>/files/reset", _files_action(_files_reset))
+
+
 @router.route("POST", "/admin/sessions/<sid>/moderate/<pid>")
 def moderate(req, sid, pid):
     who, redirect = _require(req)

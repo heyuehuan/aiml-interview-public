@@ -286,6 +286,51 @@ def record_event(session_id, actor, event, detail=None):
         fh.write(line + "\n")
 
 
+# --- LLM transcript (written by the proxy; read-only here) ------------------
+def transcript_path(session_id):
+    return os.path.join(DATA_DIR, "sessions", session_id, "llm_transcript.jsonl")
+
+
+def _transcript_text(entry):
+    """All human-readable text of one entry, for substring search."""
+    parts = [entry.get("prompt") or "", entry.get("response") or "", entry.get("error") or ""]
+    for m in entry.get("messages") or []:
+        if isinstance(m, dict):
+            parts.append(str(m.get("content") or ""))
+    return "\n".join(parts)
+
+
+def read_transcript(session_id, *, source=None, query=None, limit=500):
+    """Read a session's LLM transcript, newest first. ``source`` filters by attribution
+    ("api" | "ui" | "admin-test"); ``query`` is a case-insensitive substring over the
+    prompt/messages/response. Tolerant of blank/partial lines — the stream is append-only
+    and may be read mid-write. Returns {entries, total, shown, sources}."""
+    path = transcript_path(session_id)
+    all_entries = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    all_entries.append(json.loads(line))
+                except ValueError:
+                    continue
+    except FileNotFoundError:
+        return {"entries": [], "total": 0, "shown": 0, "sources": []}
+    sources = sorted({e.get("source") or "api" for e in all_entries})
+    rows = all_entries
+    if source:
+        rows = [e for e in rows if (e.get("source") or "api") == source]
+    if query:
+        q = query.lower()
+        rows = [e for e in rows if q in _transcript_text(e).lower()]
+    total = len(rows)
+    rows = list(reversed(rows))[:max(1, int(limit))]
+    return {"entries": rows, "total": total, "shown": len(rows), "sources": sources}
+
+
 # --- sessions ---------------------------------------------------------------
 DEFAULT_MODELS = ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
 
