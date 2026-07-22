@@ -24,14 +24,19 @@ import integrations  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def clean_ws():
+    import shutil
     for name in os.listdir(_WS):
         p = os.path.join(_WS, name)
         if os.path.isdir(p) and not os.path.islink(p):
-            import shutil
-            shutil.rmtree(p)
+            integrations._restore_writable(p)     # seed data is 0555 — restore before rm
+            shutil.rmtree(p, ignore_errors=True)
         else:
             os.remove(p)
     yield
+
+
+def _mode(p):
+    return os.stat(p).st_mode & 0o777
 
 
 def _write(rel, content="x"):
@@ -157,3 +162,87 @@ def test_session_seed_exists_distinguishes_packaged_from_not():
     assert integrations.session_seed_exists("never-activated") is False
     _seed("sess-pkgd", "p1", {"train.csv": "x"})       # packaging created the seed dir
     assert integrations.session_seed_exists("sess-pkgd") is True
+
+
+# --- provisioning: namespaced read-only data --------------------------------
+def _seed_file(sid, pid, rel, content="x"):
+    """Write an arbitrary (non-data) seed file at <seed>/<sid>/<pid>/<rel>."""
+    p = os.path.join(_SEED, sid, pid, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w") as fh:
+        fh.write(content)
+
+
+def test_data_lands_namespaced_under_workspace_data():
+    # The dataset must land at ~/workspace/data/<problem_id>/ — the path every
+    # problem.md advertises — not ~/workspace/<problem_id>/data/.
+    _seed("sess-1", "demo-problem-001", {"transactions.csv": "a,b\n1,2\n",
+                                                 "README.md": "data dict"})
+    dst = integrations.copy_problem_to_workspace("sess-1", "demo-problem-001",
+                                                 data_only=True)
+    expected = os.path.join(_WS, "data", "demo-problem-001")
+    assert dst == expected
+    assert os.path.isfile(os.path.join(expected, "transactions.csv"))
+    assert os.path.isfile(os.path.join(expected, "README.md"))
+    assert not os.path.exists(os.path.join(_WS, "demo-problem-001"))  # not old spot
+
+
+def test_provisioned_data_is_read_only():
+    _seed("sess-1", "p1", {"train.csv": "pristine\n"})
+    dst = integrations.copy_problem_to_workspace("sess-1", "p1", data_only=True)
+    assert _mode(dst) == 0o555                                  # dir traversable, not writable
+    assert _mode(os.path.join(dst, "train.csv")) == 0o444       # file read-only
+
+
+def test_data_only_ships_only_the_dataset():
+    # data_only must NOT ship problem.md or starter/ — the candidate reads the moderated
+    # statement in the browser and gets starter only via the interviewer's full push.
+    _seed("sess-1", "p1", {"train.csv": "x"})
+    _seed_file("sess-1", "p1", "problem.md", "STATEMENT")
+    _seed_file("sess-1", "p1", "starter/resolve.py", "code")
+    integrations.copy_problem_to_workspace("sess-1", "p1", data_only=True)
+    assert os.path.isfile(os.path.join(_WS, "data", "p1", "train.csv"))
+    assert not os.path.exists(os.path.join(_WS, "p1"))         # no working dir at all
+    assert not os.path.exists(os.path.join(_WS, "data", "p1", "problem.md"))
+
+
+def test_full_push_ships_working_files_but_no_data_duplicate():
+    # data_only=False (release starter): working files land WRITABLE at ~/workspace/<id>/,
+    # the dataset still lands read-only at ~/workspace/data/<id>/ — never duplicated.
+    _seed("sess-1", "p1", {"train.csv": "x"})
+    _seed_file("sess-1", "p1", "problem.md", "STATEMENT")
+    _seed_file("sess-1", "p1", "starter/resolve.py", "code")
+    integrations.copy_problem_to_workspace("sess-1", "p1", data_only=False)
+    assert os.path.isfile(os.path.join(_WS, "p1", "problem.md"))
+    assert os.path.isfile(os.path.join(_WS, "p1", "starter", "resolve.py"))
+    assert not os.path.exists(os.path.join(_WS, "p1", "data"))         # no data duplicate
+    assert os.path.isfile(os.path.join(_WS, "data", "p1", "train.csv"))  # data in its home
+    assert _mode(os.path.join(_WS, "p1", "problem.md")) & 0o200         # working copy writable
+
+
+def test_same_filename_coexists_across_problems():
+    # The whole point of namespacing: two problems that both ship transactions.csv must
+    # not collide.
+    _seed("sess-1", "demo-problem-001", {"transactions.csv": "ANOM\n"})
+    _seed("sess-1", "ml-txn-anomaly-001", {"transactions.csv": "TXN\n"})
+    integrations.copy_problem_to_workspace("sess-1", "demo-problem-001", data_only=True)
+    integrations.copy_problem_to_workspace("sess-1", "ml-txn-anomaly-001", data_only=True)
+    with open(os.path.join(_WS, "data", "demo-problem-001", "transactions.csv")) as fh:
+        assert fh.read() == "ANOM\n"
+    with open(os.path.join(_WS, "data", "ml-txn-anomaly-001", "transactions.csv")) as fh:
+        assert fh.read() == "TXN\n"
+
+
+def test_reset_restores_read_only_data_after_tamper():
+    _seed("sess-1", "p1", {"train.csv": "pristine\n"})
+    dst = integrations.copy_problem_to_workspace("sess-1", "p1", data_only=True)
+    # Simulate corruption (as root would; here restore-writable first, like the candidate
+    # owning ~/workspace could) then reset.
+    integrations._restore_writable(dst)
+    with open(os.path.join(dst, "train.csv"), "w") as fh:
+        fh.write("CORRUPTED")
+    dst2 = integrations.reset_problem_data("sess-1", "p1")
+    assert dst2 == dst
+    with open(os.path.join(dst, "train.csv")) as fh:
+        assert fh.read() == "pristine\n"
+    assert _mode(os.path.join(dst, "train.csv")) == 0o444       # read-only again
