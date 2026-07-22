@@ -300,8 +300,9 @@ a.tile p {{ margin: 0; color: var(--fg-muted); font-size: 12px; }}
 # --- brand + icon SVGs ------------------------------------------------------
 BRAND_MARK = (
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
-    'stroke-linejoin="round" aria-hidden="true">'
-    '<path d="M12 2.5 21.5 12 12 21.5 2.5 12z"/><path d="M12 7.5 16.5 12 12 16.5 7.5 12z"/></svg>'
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="M12 2.5 4.5 5.2v5.6c0 4.7 3.2 8.1 7.5 9.7 4.3-1.6 7.5-5 7.5-9.7V5.2z"/>'
+    '<path d="m9 11.8 2 2 4-4"/></svg>'
 )
 ICON_SUN = (
     '<svg class="i-sun" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
