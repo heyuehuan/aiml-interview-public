@@ -305,6 +305,33 @@ def reset_problem_data(session_id, problem_id):
     return copy_problem_to_workspace(session_id, problem_id, data_only=True)
 
 
+def clear_workspace_contents():
+    """Remove everything under WORKSPACE_DIR (dotfiles included) but keep the mount point
+    itself. Confined to WORKSPACE_DIR — never removes the directory or anything outside.
+    This is the in-container equivalent of the reset script's wipe, usable mid-session
+    (the script is export-gated and lifecycle-only)."""
+    base = os.path.realpath(WORKSPACE_DIR)
+    if not os.path.isdir(base):
+        return
+    for name in os.listdir(base):
+        p = os.path.join(base, name)
+        try:
+            if os.path.isdir(p) and not os.path.islink(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                os.remove(p)
+        except OSError:
+            pass
+
+
+def wipe_and_provision_data(session_id, problem_ids):
+    """Full workspace reset-to-clean: clear ALL workspace contents (candidate notebooks,
+    code, stray files included), then re-provision the assigned problems' ``data/`` from
+    the seed. Returns the list of problems re-provisioned."""
+    clear_workspace_contents()
+    return copy_problems_to_workspace(session_id, problem_ids, data_only=True)
+
+
 # --- export / reset ----------------------------------------------------
 def _run_script(name, session_id):
     path = os.path.join(SCRIPTS_DIR, name)
