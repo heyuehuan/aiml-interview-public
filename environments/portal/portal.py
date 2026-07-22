@@ -263,7 +263,7 @@ def copy_problem(req):
                               "message": "Files aren't ready yet — ask your interviewer to activate the session."},
                              status=409)
     return Response.json({"ok": True, "copied": copied,
-                          "message": f"Copied data for {', '.join(copied)} into ~/workspace/."})
+                          "message": f"Copied data for {', '.join(copied)} into ~/workspace/data/."})
 
 
 @router.route("GET", "/logout")

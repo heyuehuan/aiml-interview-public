@@ -9,11 +9,11 @@ a subset of which were reviewed and labeled.
 
 ## Data
 
-In `~/workspace/data/`:
+In `~/workspace/data/ml-txn-anomaly-001/` (read-only):
 
 - `transactions.csv` — six months of transactions with labels where available.
 
-Full data dictionary in `data/README.md`.
+Full data dictionary in `data/ml-txn-anomaly-001/README.md`.
 
 ## Deliverables
 
