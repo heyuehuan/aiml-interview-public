@@ -229,38 +229,115 @@ def _world_readable(path):
             os.chmod(fp, os.stat(fp).st_mode | stat.S_IRGRP | stat.S_IROTH)
 
 
-def copy_problem_to_workspace(session_id, problem_id, data_only=False):
-    """Copy one seeded problem into the candidate workspace at
-    ``~/workspace/<problem_id>/`` (the seed already enforces the visibility contract).
+def _make_readonly(path):
+    """Make a seeded tree read-only to the candidate: dirs ``0555``, files ``0444``
+    (readable and traversable by everyone, writable by no one). The portal runs as root
+    and owns these copies, so the non-root candidate can read the data but cannot edit or
+    delete a file inside it; admin reset / re-provision (also root) still replaces it.
+    Note: the candidate owns ``~/workspace`` itself, so a deliberate ``rm -rf
+    ~/workspace/data`` remains possible — reset restores it — but accidental in-place
+    corruption (an overwriting script, an edited CSV) is prevented."""
+    for root, dirs, files in os.walk(path):
+        for f in files:
+            try:
+                os.chmod(os.path.join(root, f), 0o444)
+            except OSError:
+                pass
+        for d in dirs:
+            try:
+                os.chmod(os.path.join(root, d), 0o555)
+            except OSError:
+                pass
+    try:
+        os.chmod(path, 0o555)
+    except OSError:
+        pass
 
-    ``data_only=True`` (the candidate button) ships ONLY the problem's ``data/`` dir —
-    dataset + data dictionary — and nothing else: not the written ``problem.md`` (they
-    read the moderated statement in the browser) and not ``starter/`` (the interviewer
-    releases that via the full push). ``data_only=False`` (the admin button) ships the
-    whole problem. Returns the destination, or None if there's nothing to copy."""
+
+def _restore_writable(path):
+    """Re-add owner write across a tree so it can be dropped/replaced. Seed copies are
+    made read-only (``_make_readonly``); reset / re-provision / wipe must still be able to
+    remove them. Root (production) bypasses perms anyway, but this keeps removal working
+    for a non-root owner too (tests, and defence in depth)."""
+    for root, dirs, files in os.walk(path):
+        for name in (root, *(os.path.join(root, d) for d in dirs)):
+            try:
+                os.chmod(name, 0o755)
+            except OSError:
+                pass
+        for f in files:
+            try:
+                os.chmod(os.path.join(root, f), 0o644)
+            except OSError:
+                pass
+
+
+def _candidate_data_dst(problem_id):
+    """Where a problem's read-only candidate dataset lives in the workspace:
+    ``~/workspace/data/<problem_id>/`` — one clean, namespaced data root (matches the
+    path every ``problem.md`` advertises, and keeps same-named files from colliding
+    across problems, e.g. two ``transactions.csv``)."""
+    return os.path.join(WORKSPACE_DIR, "data", problem_id)
+
+
+def copy_problem_to_workspace(session_id, problem_id, data_only=False):
+    """Provision one seeded problem into the candidate workspace.
+
+    The **dataset** always lands read-only at ``~/workspace/data/<problem_id>/`` — the
+    dataset files plus the minimal ``README.md`` data dictionary, nothing else. The
+    candidate can read it but not overwrite or delete it (see ``_make_readonly``); a
+    fresh copy replaces any existing one, so this doubles as reset.
+
+    ``data_only=True`` (candidate + admin "provision data" buttons) ships ONLY that data.
+    ``data_only=False`` (admin "release starter" full push) additionally copies the
+    problem's *writable* working files (``problem.md``, ``starter/`` — never a second
+    copy of the data) to ``~/workspace/<problem_id>/``. Returns a destination path, or
+    None if there was nothing to copy."""
     src = os.path.join(_session_seed_dir(session_id), problem_id)
     if not os.path.isdir(src):
         _log(f"seed for {problem_id} not found ({src}); did activation package it?")
         return None
-    dst = os.path.join(WORKSPACE_DIR, problem_id)
-    os.makedirs(WORKSPACE_DIR, exist_ok=True)
     ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
-    if data_only:
-        data_src = os.path.join(src, "data")
-        if not os.path.isdir(data_src):
-            _log(f"{problem_id}: no data/ dir to copy (data_only)")
-            return None
-        shutil.copytree(data_src, os.path.join(dst, "data"), dirs_exist_ok=True, ignore=ignore)
-    else:
-        shutil.copytree(src, dst, dirs_exist_ok=True, ignore=ignore)
-    _world_readable(dst)
-    return dst
+    copied = None
+
+    # dataset → read-only ~/workspace/data/<problem_id>/ (fresh copy each time)
+    data_src = os.path.join(src, "data")
+    if os.path.isdir(data_src):
+        data_dst = _candidate_data_dst(problem_id)
+        os.makedirs(os.path.dirname(data_dst), exist_ok=True)
+        if os.path.isdir(data_dst):
+            _restore_writable(data_dst)
+            shutil.rmtree(data_dst, ignore_errors=True)
+        shutil.copytree(data_src, data_dst, ignore=ignore)
+        _make_readonly(data_dst)
+        copied = data_dst
+    elif data_only:
+        _log(f"{problem_id}: no data/ dir to copy (data_only)")
+
+    # full push: writable working files (never the data) → ~/workspace/<problem_id>/
+    if not data_only:
+        work_dst = os.path.join(WORKSPACE_DIR, problem_id)
+        os.makedirs(work_dst, exist_ok=True)
+        for name in sorted(os.listdir(src)):
+            if name == "data":
+                continue
+            s = os.path.join(src, name)
+            d = os.path.join(work_dst, name)
+            if os.path.isdir(s):
+                shutil.copytree(s, d, dirs_exist_ok=True, ignore=ignore)
+            else:
+                shutil.copy2(s, d)
+        _world_readable(work_dst)
+        copied = copied or work_dst
+
+    return copied
 
 
 def copy_problems_to_workspace(session_id, problem_ids, data_only=False):
     """Copy every assigned problem into the workspace. ``data_only=True`` (candidate)
-    ships each problem's ``data/`` only; ``data_only=False`` (admin) ships the full
-    problem plus the ``PROBLEMS.md`` index. Returns the ids actually copied."""
+    ships each problem's read-only dataset into ``~/workspace/data/<id>/`` only;
+    ``data_only=False`` (admin) additionally ships the writable working files plus the
+    ``PROBLEMS.md`` index. Returns the ids actually copied."""
     copied = []
     for pid in problem_ids:
         if copy_problem_to_workspace(session_id, pid, data_only=data_only):
@@ -352,11 +429,9 @@ def delete_workspace_path(rel):
 
 
 def reset_problem_data(session_id, problem_id):
-    """Restore one problem's ``data/`` in the workspace to the seeded original: drop the
-    current copy, then re-copy from the session seed. Returns the destination or None."""
-    dst_data = os.path.join(WORKSPACE_DIR, problem_id, "data")
-    if os.path.isdir(dst_data):
-        shutil.rmtree(dst_data, ignore_errors=True)
+    """Restore one problem's read-only dataset at ``~/workspace/data/<problem_id>/`` to the
+    seeded original. ``copy_problem_to_workspace`` already drops the current copy and
+    re-copies fresh, so reset is just a re-provision. Returns the destination or None."""
     return copy_problem_to_workspace(session_id, problem_id, data_only=True)
 
 
@@ -374,6 +449,7 @@ def clear_workspace_contents():
         p = os.path.join(base, name)
         try:
             if os.path.isdir(p) and not os.path.islink(p):
+                _restore_writable(p)              # read-only seed data must still wipe
                 shutil.rmtree(p, ignore_errors=True)
             else:
                 os.remove(p)

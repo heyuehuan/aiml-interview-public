@@ -13,8 +13,8 @@ One or two paragraphs of realistic business context. Who needs this, why now.
 
 ## Data
 
-Where the data lives in the workspace (`~/workspace/data/`), one line per file.
-Full data dictionary in `data/README.md`.
+Where the data lives in the workspace (`~/workspace/data/<problem_id>/`, read-only),
+one line per file. Full data dictionary in `data/<problem_id>/README.md`.
 
 ## Deliverables
 
