@@ -1,7 +1,5 @@
 # <Title>
 
-*(Candidate-facing statement. Everything here is visible to the interviewee.)*
-
 ## Context
 
 One or two paragraphs of realistic business context. Who needs this, why now.
@@ -19,7 +17,6 @@ one line per file. Full data dictionary in `data/<problem_id>/README.md`.
 ## Deliverables
 
 - What to produce (notebook, script, short written summary of decisions).
-- How to submit (the workspace "submit" action snapshots everything).
 
 ## Ground rules
 
