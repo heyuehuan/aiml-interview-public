@@ -766,3 +766,122 @@ def is_workspace_authorized(session_id):
     if disabled and now() > disabled:
         return False
     return True
+
+
+# --- Gemini-page chat history ---------------------
+CHAT_TITLE_LEN = 48
+
+
+def _row_to_chat(row, with_messages=True):
+    if row is None:
+        return None
+    d = dict(row)
+    d["params"] = json.loads(d.get("params") or "{}")
+    if with_messages:
+        d["messages"] = json.loads(d.get("messages") or "[]")
+    else:
+        d.pop("messages", None)
+    return d
+
+
+def list_chats(session_id):
+    """This session's conversations, newest-activity first (sidebar listing)."""
+    con = db.connect()
+    try:
+        rows = con.execute(
+            """SELECT id, session_id, title, params, updated_at, created_at,
+                      json_array_length(messages) AS message_count
+               FROM chats WHERE session_id=? ORDER BY updated_at DESC""",
+            (session_id,)).fetchall()
+        return [_row_to_chat(r, with_messages=False) for r in rows]
+    finally:
+        con.close()
+
+
+def create_chat(session_id, params=None):
+    cid = str(uuid.uuid4())
+    ts = now_iso()
+    con = db.connect()
+    try:
+        con.execute(
+            "INSERT INTO chats (id, session_id, params, created_at, updated_at) VALUES (?,?,?,?,?)",
+            (cid, session_id, json.dumps(params or {}), ts, ts))
+        con.commit()
+    finally:
+        con.close()
+    return get_chat(session_id, cid)
+
+
+def get_chat(session_id, chat_id):
+    """One conversation with full messages — scoped to the session, so a stale or
+    forged chat id from another session resolves to None."""
+    con = db.connect()
+    try:
+        return _row_to_chat(con.execute(
+            "SELECT * FROM chats WHERE id=? AND session_id=?",
+            (chat_id, session_id)).fetchone())
+    finally:
+        con.close()
+
+
+def delete_chat(session_id, chat_id):
+    con = db.connect()
+    try:
+        cur = con.execute("DELETE FROM chats WHERE id=? AND session_id=?",
+                          (chat_id, session_id))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def append_chat_messages(session_id, chat_id, new_messages, params=None):
+    """Append messages to a conversation (and remember the last-used generation
+    params). The title is derived from the first user message, once."""
+    chat = get_chat(session_id, chat_id)
+    if chat is None:
+        return None
+    messages = chat["messages"] + list(new_messages)
+    title = chat["title"]
+    if title == "New chat":
+        first_user = next((m for m in messages
+                           if m.get("role") == "user" and (m.get("content") or "").strip()), None)
+        if first_user:
+            text = " ".join(first_user["content"].split())
+            title = text[:CHAT_TITLE_LEN] + ("…" if len(text) > CHAT_TITLE_LEN else "")
+    con = db.connect()
+    try:
+        con.execute(
+            "UPDATE chats SET messages=?, title=?, params=?, updated_at=? WHERE id=? AND session_id=?",
+            (json.dumps(messages), title,
+             json.dumps(params if params is not None else chat["params"]),
+             now_iso(), chat_id, session_id))
+        con.commit()
+    finally:
+        con.close()
+    return get_chat(session_id, chat_id)
+
+
+def clean_llm_params(raw):
+    """Whitelist + bound the generation params unillm actually forwards
+    (temperature, top_p, max_tokens, stop). Anything else is dropped. The
+    max_tokens ceiling mirrors unillm's UNILLM_MAX_OUTPUT_TOKENS default."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = {}
+    try:
+        if raw.get("temperature") is not None:
+            out["temperature"] = max(0.0, min(2.0, float(raw["temperature"])))
+        if raw.get("top_p") is not None:
+            out["top_p"] = max(0.0, min(1.0, float(raw["top_p"])))
+        if raw.get("max_tokens") is not None:
+            out["max_tokens"] = max(1, min(8192, int(raw["max_tokens"])))
+    except (TypeError, ValueError):
+        pass
+    stop = raw.get("stop")
+    if isinstance(stop, str):
+        stop = [stop]
+    if isinstance(stop, list):
+        stop = [str(x) for x in stop if str(x).strip()][:4]
+        if stop:
+            out["stop"] = stop
+    return out
