@@ -58,19 +58,26 @@ def revoke_llm_key(session_id):
     return
 
 
-def llm_chat(model_name, prompt, timeout=60):
+def llm_chat(model_name, prompt, timeout=60, source=None):
     """One-shot chat against unillm server-side (from the portal/admin container, so it
     hits unillm:8081 directly with the master key). Powers both the admin 'Test Gemini'
     button and the candidate playground. Returns {ok, model, text}; text is the reply on
-    success or a human-readable error otherwise (never raises)."""
+    success or a human-readable error otherwise (never raises).
+
+    ``source`` (e.g. "ui", "admin-test") is forwarded so the proxy tags the transcript
+    entry. It is honoured only because this call uses the master key — a candidate's
+    direct call carries the session key and is always attributed "api" (see proxy)."""
     payload = json.dumps({
         "model": model_name,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
+    headers = {"Content-Type": "application/json",
+               "Authorization": f"Bearer {UNILLM_MASTER_KEY}"}
+    if source:
+        headers["X-Unillm-Source"] = source
     req = urllib.request.Request(
         f"{UNILLM_INTERNAL_URL}/chat/completions", data=payload, method="POST",
-        headers={"Content-Type": "application/json",
-                 "Authorization": f"Bearer {UNILLM_MASTER_KEY}"})
+        headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read())
@@ -85,7 +92,7 @@ def llm_chat(model_name, prompt, timeout=60):
 
 def gemini_healthcheck(model_name=HEALTHCHECK_MODEL, prompt="Hello"):
     """Admin 'Test Gemini' button."""
-    return llm_chat(model_name, prompt, timeout=30)
+    return llm_chat(model_name, prompt, timeout=30, source="admin-test")
 
 
 def list_models(timeout=4):
@@ -213,6 +220,89 @@ def copy_problems_to_workspace(session_id, problem_ids, data_only=False):
             except OSError:
                 pass
     return copied
+
+
+# --- admin file manager over the candidate workspace ------------------------
+# The admin panel can browse, view, and manage the single live candidate workspace
+# (the `workspace` volume, mounted RW here). Every candidate-supplied path is confined
+# to WORKSPACE_DIR by realpath (traversal/symlink guard) before any fs op.
+MAX_VIEW_BYTES = int(os.environ.get("WS_FILE_VIEW_MAX_BYTES", str(256 * 1024)))
+
+
+def _safe_workspace_path(rel):
+    """Resolve a workspace-relative path, confined to WORKSPACE_DIR. Rejects traversal
+    and symlink escapes; returns an absolute realpath under the workspace or raises."""
+    rel = (rel or "").strip().lstrip("/")
+    base = os.path.realpath(WORKSPACE_DIR)
+    target = os.path.realpath(os.path.join(base, rel))
+    if target != base and not target.startswith(base + os.sep):
+        raise ValueError("path is outside the workspace")
+    return target, base
+
+
+def list_workspace(rel=""):
+    """List a directory inside the candidate workspace. Returns a dict with the resolved
+    relative ``path`` and its ``entries`` (name, rel, is_dir, size, mtime), dirs first."""
+    target, base = _safe_workspace_path(rel)
+    disp = "" if target == base else os.path.relpath(target, base)
+    if not os.path.exists(target):
+        return {"path": disp, "exists": False, "is_file": False, "entries": []}
+    if os.path.isfile(target):
+        return {"path": disp, "exists": True, "is_file": True, "entries": []}
+    entries = []
+    for name in os.listdir(target):
+        p = os.path.join(target, name)
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        is_dir = os.path.isdir(p)
+        entries.append({"name": name, "rel": os.path.relpath(p, base), "is_dir": is_dir,
+                        "size": 0 if is_dir else st.st_size, "mtime": st.st_mtime})
+    entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+    return {"path": disp, "exists": True, "is_file": False, "entries": entries}
+
+
+def read_workspace_file(rel):
+    """Return {rel, size, text, binary, truncated} for a workspace file (confined).
+    Reads at most MAX_VIEW_BYTES; flags binary content rather than dumping it."""
+    target, base = _safe_workspace_path(rel)
+    if not os.path.isfile(target):
+        raise ValueError("not a file")
+    size = os.path.getsize(target)
+    with open(target, "rb") as fh:
+        raw = fh.read(MAX_VIEW_BYTES + 1)
+    truncated = len(raw) > MAX_VIEW_BYTES
+    raw = raw[:MAX_VIEW_BYTES]
+    disp = os.path.relpath(target, base)
+    if b"\x00" in raw:
+        return {"rel": disp, "size": size, "binary": True, "text": None, "truncated": truncated}
+    return {"rel": disp, "size": size, "binary": False,
+            "text": raw.decode("utf-8", "replace"), "truncated": truncated}
+
+
+def delete_workspace_path(rel):
+    """Delete a file or directory inside the workspace (confined). Refuses the workspace
+    root itself. Returns the deleted relative path."""
+    target, base = _safe_workspace_path(rel)
+    if target == base:
+        raise ValueError("refusing to delete the workspace root")
+    if not os.path.exists(target) and not os.path.islink(target):
+        raise ValueError("no such path")
+    if os.path.isdir(target) and not os.path.islink(target):
+        shutil.rmtree(target)
+    else:
+        os.remove(target)
+    return os.path.relpath(target, base)
+
+
+def reset_problem_data(session_id, problem_id):
+    """Restore one problem's ``data/`` in the workspace to the seeded original: drop the
+    current copy, then re-copy from the session seed. Returns the destination or None."""
+    dst_data = os.path.join(WORKSPACE_DIR, problem_id, "data")
+    if os.path.isdir(dst_data):
+        shutil.rmtree(dst_data, ignore_errors=True)
+    return copy_problem_to_workspace(session_id, problem_id, data_only=True)
 
 
 # --- export / reset ----------------------------------------------------

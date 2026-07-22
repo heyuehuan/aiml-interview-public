@@ -55,6 +55,15 @@ def test_completion_is_attributed_to_the_active_session(tx):
     assert entry["ts"].endswith("+00:00")
 
 
+def test_source_defaults_to_api_and_is_recorded(tx):
+    _activate(tx, "sess-1")
+    tx.record(endpoint="chat.completions", model="m", response_text="a")           # no source
+    tx.record(endpoint="chat.completions", model="m", response_text="b", source="ui")
+    first, second = _lines(tx, "sess-1")
+    assert first["source"] == "api"        # candidate/direct is the default attribution
+    assert second["source"] == "ui"        # portal playground tag preserved
+
+
 def test_stream_is_append_only_across_calls(tx):
     _activate(tx, "sess-1")
     for i in range(3):

@@ -29,6 +29,23 @@ candidate can resume: it re-provisions like activation, preserves the remaining 
 transition appends to `data/sessions/<id>/events.jsonl`. Admin accounts live in the
 `admins` table, seeded from `.env` on first boot.
 
+## Admin review surfaces
+
+From a session's detail page:
+
+- **Workspace files** (`/admin/sessions/<id>/files`) — browse, view, and manage the live
+  candidate `workspace` volume: navigate folders, read a file's current contents, remove
+  a file/dir, and provision or reset a problem's seeded `data/`. Every candidate-supplied
+  path is confined to `WORKSPACE_DIR` by realpath (traversal + symlink guard); mutations
+  emit `workspace_file_deleted` / `workspace_data_provisioned` / `workspace_data_reset`
+  events. Gated to the single live workspace (the active session, or a not-yet-reset
+  closed/exported one when nothing else is live). Never surfaces solutions/rubrics — it
+  reads the candidate's own files and provisions only seeded `data/`.
+- **LLM transcript** (`/admin/sessions/<id>/transcript`) — near-real-time reader of
+  `llm_transcript.jsonl` (Refresh re-reads the file), with a **source** filter
+  (Direct API call / UI playground / Admin test) and a substring search over
+  prompt/response. Source is the proxy's tamper-proof attribution.
+
 ## The non-root workspace
 
 The admin sets a **`workspace_user`** (non-root OS login) per session. On activation the

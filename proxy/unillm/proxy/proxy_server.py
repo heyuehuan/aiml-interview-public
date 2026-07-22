@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from unillm import __version__
 from unillm._logging import verbose_proxy_logger, set_verbose
 from unillm.proxy import limits, transcript
-from unillm.proxy.auth import user_api_key_auth
+from unillm.proxy.auth import is_session_key, user_api_key_auth
 from unillm.types import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -284,10 +284,23 @@ def _enforce_rate_limit(user_api_key_dict: UserAPIKeyAuth) -> None:
 
 
 # Chat completions endpoint
+def _transcript_source(request: Request, user_api_key_dict: UserAPIKeyAuth) -> str:
+    """Attribute a call for the transcript. A candidate's workspace call authenticates
+    with the per-session key and is always "api" — any client-set X-Unillm-Source header
+    is ignored so a candidate can't masquerade as the UI. A server-side/master-key caller
+    (portal playground, admin test) may declare its source via that header ("ui",
+    "admin-test"); default "server"."""
+    if is_session_key(user_api_key_dict.api_key):
+        return "api"
+    hdr = (request.headers.get("x-unillm-source") or "").strip().lower()
+    return hdr[:32] if hdr else "server"
+
+
 @app.post("/v1/chat/completions", dependencies=[Depends(user_api_key_auth)])
 @app.post("/chat/completions", dependencies=[Depends(user_api_key_auth)])
 async def chat_completions(
     request_body: ChatCompletionRequest,
+    request: Request,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ):
     """
@@ -313,6 +326,7 @@ async def chat_completions(
   
     verbose_proxy_logger.debug(f"Chat completion request for model: {model} -> {actual_model}")
 
+    source = _transcript_source(request, user_api_key_dict)
     started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
         handler_kwargs = {
@@ -334,7 +348,7 @@ async def chat_completions(
             # untouched, and the audit trail still records what was generated.
             return StreamingResponse(
                 transcript.tee_stream(response, endpoint="chat.completions", model=model,
-                                      messages=messages, started=started),
+                                      messages=messages, started=started, source=source),
                 media_type="text/event-stream",
             )
         else:
@@ -344,7 +358,7 @@ async def chat_completions(
                 endpoint="chat.completions", model=model, messages=messages,
                 response_text=transcript.text_of(response),
                 usage=transcript.usage_of(response),
-                latency_ms=int((time.monotonic() - started) * 1000),
+                latency_ms=int((time.monotonic() - started) * 1000), source=source,
             )
             return response
 
@@ -352,7 +366,7 @@ async def chat_completions(
         verbose_proxy_logger.exception(f"Error in chat completion: {e}")
         transcript.record(
             endpoint="chat.completions", model=model, messages=messages, error=e,
-            latency_ms=int((time.monotonic() - started) * 1000),
+            latency_ms=int((time.monotonic() - started) * 1000), source=source,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -365,6 +379,7 @@ async def chat_completions(
 @app.post("/completions", dependencies=[Depends(user_api_key_auth)])
 async def completions(
     request_body: CompletionRequest,
+    request: Request,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ):
     """
@@ -390,6 +405,7 @@ async def completions(
   
     verbose_proxy_logger.debug(f"Text completion request for model: {model} -> {actual_model}")
 
+    source = _transcript_source(request, user_api_key_dict)
     started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
         handler_kwargs = {
@@ -409,7 +425,7 @@ async def completions(
         if stream:
             return StreamingResponse(
                 transcript.tee_stream(response, endpoint="completions", model=model,
-                                      prompt=prompt, started=started),
+                                      prompt=prompt, started=started, source=source),
                 media_type="text/event-stream",
             )
         else:
@@ -419,7 +435,7 @@ async def completions(
                 endpoint="completions", model=model, prompt=prompt,
                 response_text=transcript.text_of(response),
                 usage=transcript.usage_of(response),
-                latency_ms=int((time.monotonic() - started) * 1000),
+                latency_ms=int((time.monotonic() - started) * 1000), source=source,
             )
             return response
 
@@ -427,7 +443,7 @@ async def completions(
         verbose_proxy_logger.exception(f"Error in text completion: {e}")
         transcript.record(
             endpoint="completions", model=model, prompt=prompt, error=e,
-            latency_ms=int((time.monotonic() - started) * 1000),
+            latency_ms=int((time.monotonic() - started) * 1000), source=source,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

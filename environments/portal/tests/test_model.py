@@ -115,6 +115,44 @@ def test_illegal_transitions_rejected():
         model.mark_exported(s["id"])  # active -> exported not allowed
 
 
+# --- LLM transcript reader --------------------------------------------------
+def _write_transcript(sid, entries):
+    import json as _json
+    path = model.transcript_path(sid)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        for e in entries:
+            fh.write(_json.dumps(e) + "\n")
+        fh.write("\n")            # a blank/partial line must be tolerated
+
+
+def test_read_transcript_missing_is_empty():
+    s = _new()
+    data = model.read_transcript(s["id"])
+    assert data == {"entries": [], "total": 0, "shown": 0, "sources": []}
+
+
+def test_read_transcript_newest_first_with_filters():
+    s = _new()
+    _write_transcript(s["id"], [
+        {"ts": "t1", "source": "api", "prompt": "gradient boosting help", "response": "sure"},
+        {"ts": "t2", "source": "ui", "messages": [{"role": "user", "content": "hello there"}]},
+        {"ts": "t3", "source": "api", "prompt": "unrelated", "response": "pandas merge"},
+    ])
+    all_ = model.read_transcript(s["id"])
+    assert all_["total"] == 3 and all_["sources"] == ["api", "ui"]
+    assert all_["entries"][0]["ts"] == "t3"                      # newest first
+
+    ui = model.read_transcript(s["id"], source="ui")
+    assert ui["total"] == 1 and ui["entries"][0]["source"] == "ui"
+
+    hit = model.read_transcript(s["id"], query="PANDAS")          # case-insensitive, over response
+    assert hit["total"] == 1 and hit["entries"][0]["ts"] == "t3"
+
+    both = model.read_transcript(s["id"], source="api", query="gradient")
+    assert both["total"] == 1 and both["entries"][0]["ts"] == "t1"
+
+
 def test_extend_only_when_active():
     s = _new()
     with pytest.raises(ValueError):

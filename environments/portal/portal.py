@@ -120,7 +120,7 @@ def llm_playground(req):
         return Response.json({"ok": False, "text": "That model isn't enabled for this session."}, status=400)
     if not prompt:
         return Response.json({"ok": False, "text": "Enter a prompt first."}, status=400)
-    result = integrations.llm_chat(model_name, prompt)
+    result = integrations.llm_chat(model_name, prompt, source="ui")
     model.record_event(s["id"], "candidate", "llm_playground", {"model": model_name})
     return Response.json(result)
 
