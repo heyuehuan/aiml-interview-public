@@ -7,6 +7,7 @@ and serves the proxy's `/api/authz` gate for `/ide` and `/jupyter`.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 
@@ -15,6 +16,7 @@ import integrations
 import model
 import registry
 import views
+import views_llm
 from server import Response, Router, serve
 
 COOKIE = "sid"
@@ -105,24 +107,116 @@ def accept_terms(req):
     return Response.redirect("/")
 
 
-@router.route("POST", "/api/llm/playground")
-def llm_playground(req):
-    """Candidate playground: proxy a one-shot prompt to unillm server-side so the master
-    key never reaches the browser. Gated to an active, terms-accepted session and to the
-    session's own model allowlist."""
+# --- Gemini page + server-side chat history ------
+def _llm_gated(req):
+    """The Gemini page and chat API share the /problems gate: an active,
+    terms-accepted session."""
     s = _current(req)
     if not s or not s["terms_accepted_at"]:
-        return Response.json({"ok": False, "text": "No active session."}, status=401)
+        return None
+    return s
+
+
+@router.route("GET", "/llm")
+def llm_page(req):
+    s = _llm_gated(req)
+    if not s:
+        return Response.redirect("/")
+    return Response.html(views_llm.llm_page(
+        s, chats=model.list_chats(s["id"]),
+        api_key=integrations.get_session_llm_key(s["id"]),
+        remaining_minutes=_remaining_minutes(s)))
+
+
+@router.route("GET", "/api/llm/chats")
+def llm_chats(req):
+    s = _llm_gated(req)
+    if not s:
+        return Response.json({"error": "No active session."}, status=401)
+    return Response.json({"chats": model.list_chats(s["id"])})
+
+
+@router.route("POST", "/api/llm/chats")
+def llm_chat_create(req):
+    s = _llm_gated(req)
+    if not s:
+        return Response.json({"error": "No active session."}, status=401)
+    chat = model.create_chat(s["id"], params=_clean_params(req.json_body().get("params")))
+    return Response.json({"chat": chat})
+
+
+@router.route("GET", "/api/llm/chats/<cid>")
+def llm_chat_get(req, cid):
+    s = _llm_gated(req)
+    if not s:
+        return Response.json({"error": "No active session."}, status=401)
+    chat = model.get_chat(s["id"], cid)
+    if not chat:
+        return Response.json({"error": "No such conversation."}, status=404)
+    return Response.json({"chat": chat})
+
+
+@router.route("POST", "/api/llm/chats/<cid>/delete")
+def llm_chat_delete(req, cid):
+    s = _llm_gated(req)
+    if not s:
+        return Response.json({"error": "No active session."}, status=401)
+    model.delete_chat(s["id"], cid)
+    return Response.json({"ok": True})
+
+
+_clean_params = model.clean_llm_params
+
+
+@router.route("POST", "/api/llm/chats/<cid>/send")
+def llm_chat_send(req, cid):
+    """Append a user message and stream the assistant reply as NDJSON
+    (`{"delta"}…{"done"}`). The upstream call is server-side with the master key +
+    source "ui" (unillm's tee writes the audit transcript); history persists in the
+    chats table even if the browser disconnects mid-stream."""
+    s = _llm_gated(req)
+    if not s:
+        return Response.json({"error": "No active session."}, status=401)
+    chat = model.get_chat(s["id"], cid)
+    if not chat:
+        return Response.json({"error": "No such conversation."}, status=404)
     data = req.json_body()
     model_name = (data.get("model") or "").strip()
-    prompt = (data.get("prompt") or "").strip()
+    content = (data.get("content") or "").strip()
     if model_name not in (s["llm_models"] or []):
-        return Response.json({"ok": False, "text": "That model isn't enabled for this session."}, status=400)
-    if not prompt:
-        return Response.json({"ok": False, "text": "Enter a prompt first."}, status=400)
-    result = integrations.llm_chat(model_name, prompt, source="ui")
-    model.record_event(s["id"], "candidate", "llm_playground", {"model": model_name})
-    return Response.json(result)
+        return Response.json({"error": "That model isn't enabled for this session."}, status=400)
+    if not content:
+        return Response.json({"error": "Enter a message first."}, status=400)
+    params = _clean_params(data.get("params"))
+    history = [{"role": m["role"], "content": m["content"]}
+               for m in chat["messages"] if m.get("role") in ("user", "assistant")]
+    upstream = history + [{"role": "user", "content": content}]
+    model.record_event(s["id"], "candidate", "llm_chat",
+                       {"chat_id": cid, "model": model_name, "params": params})
+
+    def stream():
+        parts, err, saved = [], None, None
+        try:
+            for kind, val in integrations.llm_chat_stream(model_name, upstream, params):
+                if kind == "delta":
+                    parts.append(val)
+                    yield json.dumps({"delta": val}) + "\n"
+                else:
+                    err = val
+                    yield json.dumps({"error": val}) + "\n"
+        finally:
+            # Persist even on client disconnect (GeneratorExit passes through here;
+            # no yields in this block — a closing generator may not yield again).
+            new = [{"role": "user", "content": content}]
+            if parts:
+                new.append({"role": "assistant", "content": "".join(parts),
+                            "model": model_name})
+            saved = model.append_chat_messages(s["id"], cid, new, params=params)
+        if err is None:
+            yield json.dumps({"done": True,
+                              "title": saved["title"] if saved else None}) + "\n"
+
+    return Response.stream(stream())
 
 
 @router.route("GET", "/problems")

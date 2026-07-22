@@ -95,6 +95,61 @@ def gemini_healthcheck(model_name=HEALTHCHECK_MODEL, prompt="Hello"):
     return llm_chat(model_name, prompt, timeout=30, source="admin-test")
 
 
+def get_session_llm_key(session_id):
+    """The per-session candidate key, read back from the live control file — shown in
+    plain text on the candidate's Gemini API-access page. Only valid (and only
+    returned) while the control file names this session active, which is exactly the
+    window unillm accepts it for. Never the master key."""
+    try:
+        with open(CONTROL_FILE, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+    if doc.get("state") != "active" or doc.get("session_id") != session_id:
+        return None
+    return doc.get("llm_api_key")
+
+
+def llm_chat_stream(model_name, messages, params=None, timeout=120, source="ui"):
+    """Stream a chat completion from unillm (SSE upstream), yielding events:
+    ``("delta", text)`` per content fragment, then ``("error", message)`` on failure.
+    Server-side with the master key + source tag, like llm_chat(); unillm's tee still
+    writes the audit transcript. Never raises."""
+    payload = {"model": model_name, "messages": messages, "stream": True}
+    for k in ("temperature", "top_p", "max_tokens", "stop"):
+        v = (params or {}).get(k)
+        if v is not None:
+            payload[k] = v
+    req = urllib.request.Request(
+        f"{UNILLM_INTERNAL_URL}/chat/completions", data=json.dumps(payload).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {UNILLM_MASTER_KEY}",
+                 "X-Unillm-Source": source})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    delta = (chunk.get("choices") or [{}])[0].get("delta") or {}
+                    text = delta.get("content")
+                except (ValueError, AttributeError, IndexError):
+                    continue
+                if text:
+                    yield ("delta", text)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")[:600]
+        yield ("error", f"HTTP {exc.code}: {body}")
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        yield ("error", f"{type(exc).__name__}: {exc}")
+
+
 def list_models(timeout=4):
     """Live model list unillm is currently serving (GET /v1/models). Short timeout so a
     down proxy doesn't stall the admin dashboard. Returns {ok, models:[id,...], error}."""

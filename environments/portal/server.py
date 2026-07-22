@@ -67,6 +67,7 @@ class Response:
             body = body.encode("utf-8")
         self.status = status
         self.body = body
+        self.body_iter = None       # generator of str/bytes chunks → streamed response
         self.headers = list(headers or [])
         if content_type is not None:
             self.headers.append(("Content-Type", content_type))
@@ -94,6 +95,15 @@ class Response:
     @classmethod
     def json(cls, obj, status=200):
         return cls(status, _json.dumps(obj), "application/json; charset=utf-8")
+
+    @classmethod
+    def stream(cls, chunks, content_type="application/x-ndjson; charset=utf-8"):
+        """A streamed response: ``chunks`` is an iterator of str/bytes flushed to the
+        client as they are produced (no Content-Length; the connection closes at the
+        end, which is how HTTP/1.0 delimits the body)."""
+        resp = cls(200, b"", content_type)
+        resp.body_iter = chunks
+        return resp
 
     @classmethod
     def redirect(cls, location, status=303):
@@ -176,6 +186,27 @@ def serve(router, port, *, name="service"):
             except Exception as exc:  # never leak a stack trace to a candidate
                 self.log_error("handler error: %s", exc)
                 resp = Response(500, "internal error", "text/plain; charset=utf-8")
+            if resp.body_iter is not None and method != "HEAD":
+                # Streamed response: flush chunks as they arrive (NDJSON to the
+                # browser). No Content-Length; close-delimited (HTTP/1.0 default).
+                self.send_response(resp.status)
+                for k, v in resp.headers:
+                    self.send_header(k, v)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                try:
+                    for chunk in resp.body_iter:
+                        if isinstance(chunk, str):
+                            chunk = chunk.encode("utf-8")
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # client went away mid-stream; generator cleanup persists state
+                finally:
+                    close = getattr(resp.body_iter, "close", None)
+                    if close:
+                        close()
+                return
             self.send_response(resp.status)
             for k, v in resp.headers:
                 self.send_header(k, v)

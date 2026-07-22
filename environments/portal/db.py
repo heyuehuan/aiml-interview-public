@@ -51,6 +51,20 @@ CREATE TABLE IF NOT EXISTS moderation (
     PRIMARY KEY (session_id, problem_id)
 );
 
+-- Gemini-page chat history: one row per conversation,
+-- messages as a JSON array. the portal is the sole writer; the audit source of
+-- truth for what the LLM actually said stays llm_transcript.jsonl (unillm writes it).
+CREATE TABLE IF NOT EXISTS chats (
+    id         TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    title      TEXT NOT NULL DEFAULT 'New chat',
+    params     TEXT NOT NULL DEFAULT '{}',
+    messages   TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chats_by_session ON chats(session_id, updated_at);
+
 -- One candidate at a time. A partial unique index makes "at most one active
 -- session" a database invariant: every indexed row has state='active', so uniqueness
 -- on that column permits only one. This backstops the application-level check in
