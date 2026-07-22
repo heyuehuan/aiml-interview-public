@@ -15,7 +15,7 @@ import db
 import integrations
 import model
 import registry
-import views
+import views_admin as views
 from server import Response, Router, serve
 
 COOKIE = "admin"
@@ -50,12 +50,15 @@ def healthz(req):
 UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me")
 
 
-def _dashboard(who, notice=None, llm_test=None, deliver_report=None):
-    return Response.html(views.admin_dashboard(
-        who, model.list_sessions(), registry.load_problems(),
-        notice=notice, llm_key=UNILLM_MASTER_KEY, llm_test=llm_test,
-        models_info=integrations.list_models(),
-        all_problems=registry.all_problems(), deliver_report=deliver_report))
+def _problems_page(who, deliver_report=None, notice=None):
+    return Response.html(views.problems_admin_page(
+        who, registry.all_problems(), deliver_report=deliver_report, notice=notice))
+
+
+def _llm_page(who, llm_test=None, notice=None):
+    return Response.html(views.llm_admin_page(
+        who, UNILLM_MASTER_KEY, llm_test=llm_test,
+        models_info=integrations.list_models(), notice=notice))
 
 
 @router.route("POST", "/admin/problems/validate-data")
@@ -64,7 +67,7 @@ def validate_data(req):
     if redirect:
         return redirect
     ids = [p["id"] for p in registry.all_problems()]
-    return _dashboard(who, deliver_report=integrations.check_deliverable(ids))
+    return _problems_page(who, deliver_report=integrations.check_deliverable(ids))
 
 
 @router.route("POST", "/admin/problems/<pid>/visibility")
@@ -75,7 +78,7 @@ def problem_visibility(req, pid):
     visible = req.form.get("visible") == "1"
     registry.set_visibility(pid, visible)
     return Response.redirect(
-        f"/admin?notice={_q((pid + ' is now ' + ('visible' if visible else 'hidden')))}")
+        f"/admin/problems?notice={_q((pid + ' is now ' + ('visible' if visible else 'hidden')))}")
 
 
 @router.route("GET", "/admin")
@@ -83,7 +86,40 @@ def dashboard(req):
     who = _admin(req)
     if not who:
         return Response.html(views.admin_login())
-    return _dashboard(who, notice=req.query.get("notice"))
+    return Response.html(views.sessions_page(
+        who, model.list_sessions(), notice=req.query.get("notice")))
+
+
+@router.route("GET", "/admin/problems")
+def problems_tab(req):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    return _problems_page(who, notice=req.query.get("notice"))
+
+
+@router.route("GET", "/admin/llm")
+def llm_tab(req):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    return _llm_page(who, notice=req.query.get("notice"))
+
+
+@router.route("GET", "/admin/settings")
+def settings_tab(req):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    return Response.html(views.settings_page(who, notice=req.query.get("notice")))
+
+
+@router.route("GET", "/admin/sessions/new")
+def new_session_form(req):
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    return Response.html(views.session_new_page(who, registry.load_problems()))
 
 
 @router.route("POST", "/admin/llm/test")
@@ -91,8 +127,7 @@ def llm_test(req):
     who, redirect = _require(req)
     if redirect:
         return redirect
-    result = integrations.gemini_healthcheck()
-    return _dashboard(who, llm_test=result)
+    return _llm_page(who, llm_test=integrations.gemini_healthcheck())
 
 
 @router.route("POST", "/admin/login")
@@ -126,15 +161,15 @@ def change_password(req):
     new = req.form.get("new_password", "").strip()
     confirm = req.form.get("confirm_password", "").strip()
     if not model.authenticate_admin(who, current):
-        return _dashboard(who, notice="Current password is incorrect.")
+        return Response.html(views.settings_page(who, error="Current password is incorrect."))
     if len(new) < 8:
-        return _dashboard(who, notice="New password must be at least 8 characters.")
+        return Response.html(views.settings_page(who, error="New password must be at least 8 characters."))
     if new != confirm:
-        return _dashboard(who, notice="New passwords do not match.")
+        return Response.html(views.settings_page(who, error="New passwords do not match."))
     model.change_password(who, new)
     # The password change invalidated the current cookie's credential version;
     # re-issue one so the admin who just changed it isn't immediately logged out.
-    resp = _dashboard(who, notice="Password changed successfully.")
+    resp = Response.html(views.settings_page(who, notice="Password changed successfully."))
     resp.set_cookie(COOKIE, model.sign_admin(who), max_age=model.COOKIE_MAX_AGE)
     return resp
 
@@ -159,7 +194,8 @@ def create(req):
             actor=who,
         )
     except ValueError as exc:
-        return Response.redirect(f"/admin?notice={_q('Could not create session: ' + str(exc))}")
+        return Response.html(views.session_new_page(
+            who, registry.load_problems(), error=f"Could not create session: {exc}"))
     return Response.redirect(f"/admin/sessions/{s['id']}")
 
 
