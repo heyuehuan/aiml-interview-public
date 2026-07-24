@@ -25,7 +25,7 @@
 title: Technical Interview Platform
 subtitle: Candidate Information Sheet
 url_label: Go to
-code_label: Access code
+code_label: ACCESS CODE
 copyright: © 2026 Technical Interview Platform
 notice: |
   Please CLOSE all pages after the interview concludes,
@@ -49,7 +49,7 @@ before you start.
 
 ## What's provided
 
-- {icon:problems} **Problems** — Your assigned tasks in the interview, will be released as progression.
+- {icon:problems} **Problems** — Your tasks in the interview, released as you progress.
 - {icon:gemini} **Gemini** — Chat playground **and a Gemini API key that is already
   provided** — call it from your own code; no key or account of your own is needed.
 - {icon:ide} **IDE** — VS Code, in the browser.
