@@ -8,7 +8,6 @@ set -euo pipefail
 TOOL="${WORKSPACE_TOOL:?set WORKSPACE_TOOL=code-server|jupyter}"
 CONTROL="${CONTROL_FILE:-/control/active.json}"
 WORKDIR="${WORKSPACE_DIR:-/data/workspace}"
-SEED_ROOT="${PROBLEMS_SEED_DIR:-/problems_seed}"
 
 log() { echo "[workspace:$TOOL] $*" >&2; }
 
@@ -34,7 +33,6 @@ SID="$(field session_id)"
 USER_NAME="$(field workspace_user)"
 LLM_BASE_URL="$(field llm_base_url)"
 LLM_API_KEY="$(field llm_api_key)"
-SEED_DIR="$(field seed_dir)"
 [ -n "$USER_NAME" ] || USER_NAME="candidate"
 log "provisioning session $SID as user '$USER_NAME'"
 
@@ -46,23 +44,15 @@ HOME_DIR="/home/$USER_NAME"
 mkdir -p "$WORKDIR"
 ln -sfn "$WORKDIR" "$HOME_DIR/workspace"
 
-# Problems are NOT copied in automatically: the moderator introduces them one at a time.
-# Every other path into the workspace is gated on the per-problem `released` count (the
-# admin provision/full-push buttons, and the candidate's own copy button), so a blanket
-# copy here would hand the candidate every assigned problem's data at session start and
-# bypass that gate entirely. Packaging still runs at activation — the seed sits in
-# $SEED_ROOT/$SID waiting to be released, which is what the admin buttons copy from.
-# Set WORKSPACE_AUTOSEED=1 to restore the old copy-everything behaviour.
-# Only packager-produced content ever lands here — it enforces candidate_paths.
-if [ "${WORKSPACE_AUTOSEED:-0}" = "1" ]; then
-  if [ -n "$SEED_DIR" ] && [ -d "$SEED_DIR" ]; then
-    cp -a "$SEED_DIR/." "$WORKDIR/" && log "seeded problems from $SEED_DIR (WORKSPACE_AUTOSEED=1)"
-  elif [ -d "$SEED_ROOT/$SID" ]; then
-    cp -a "$SEED_ROOT/$SID/." "$WORKDIR/" && log "seeded problems from $SEED_ROOT/$SID (WORKSPACE_AUTOSEED=1)"
-  fi
-else
-  log "auto-seed off: problems are released by the moderator (WORKSPACE_AUTOSEED=1 restores it)"
-fi
+# Problems are NOT copied in here, and the seed volume is NOT mounted in this container.
+# The moderator introduces problems one at a time; every path into the workspace is gated
+# on the per-problem `released` count (the admin provision/full-push buttons, and the
+# candidate's own copy button), all of which run in the portal/admin containers and copy
+# from problems_seed there. Mounting the seed here would let a candidate with a terminal
+# read every packaged problem — including their own unreleased ones — straight off the
+# filesystem, which defeats the gate regardless of what this script copies.
+# To hand a candidate everything at once, use the admin full-push button.
+log "problems are released by the moderator; no seed is mounted in this container"
 
 chown -R "$USER_NAME:$USER_NAME" "$WORKDIR" "$HOME_DIR"
 
