@@ -3,9 +3,10 @@
 
     python -m problems.package <session_id> <problem_id>...
 
-Builds ``$PROBLEMS_SEED_DIR/<session_id>/`` — the read-only seed the workspace
-entrypoint copies into the candidate volume, and the same source the portal's
-"copy to workspace" button copies from.
+Builds ``$PROBLEMS_SEED_DIR/<session_id>/`` — the read-only seed that the admin
+provision/push buttons and the portal's "copy to workspace" button copy from. Nothing
+copies it into the candidate volume automatically; the moderator releases problems one
+at a time.
 
 Visibility contract (CLAUDE.md hard rule): ONLY a problem's ``candidate_paths``
 (plus generated candidate data) may reach a candidate. This module is the *sole*

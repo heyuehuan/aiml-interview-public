@@ -169,7 +169,8 @@ def list_models(timeout=4):
 # --- problem packager --------------------------------------------------
 def package_problems(session):
     """the integration contract: python -m problems.package <session_id> <problem_id>... Writes
-    problems_seed/<session_id>/; the workspace entrypoint copies it in.
+    problems_seed/<session_id>/, where the seed waits until the moderator releases a
+    problem (copy_problem_to_workspace); nothing copies it into the workspace on its own.
 
     Tolerant of the packager being genuinely absent (tooling not deployed), but a
     packager that *ran and failed* — e.g. a problem that would ship a candidate an
@@ -191,7 +192,8 @@ def package_problems(session):
         _log(f"packager FAILED for {session['id']}: {tail}")
         raise ValueError(f"problem packaging failed — {tail}")
     except (subprocess.SubprocessError, OSError) as exc:
-        _log(f"packager unavailable ({exc}); workspace will start without seeded problems")
+        _log(f"packager unavailable ({exc}); no seed to release — the admin "
+             f"provision/push buttons will have nothing to copy")
 
 
 def check_deliverable(problem_ids):
