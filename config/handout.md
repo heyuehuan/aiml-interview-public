@@ -23,36 +23,36 @@
 # can change what a candidate is told, so treat it as reviewed content, not scratch.
 
 title: Technical Interview Platform
-subtitle: Candidate information sheet
+subtitle: Candidate Information Sheet
 url_label: Go to
 code_label: Access code
 copyright: © 2026 Technical Interview Platform
 notice: |
-  Please close all pages after the interview concludes,
+  Please CLOSE all pages once the interview concludes,
   and do not take this paper with you.
 ---
 
 Welcome, and thank you for joining us. Everything you need for today's session runs in
-your browser (no need for setup or downloads). Please take a moment to read this page
+your browser — nothing to set up or download. Please take a moment to read this page
 before you start.
 
 ## Getting started
 
 1. Open the URL above in any browser.
 2. Enter your access code, then read and accept the terms to begin. **Your time starts
-   when you accept** — the clock is shown in the top-right corner.
-3. Pick a tool from the home page. Everything runs in the browser; nothing to install.
+   when you accept.**
+3. Pick a tool from the home page and start working.
 4. Problems appear as your interviewer releases them — press **Refresh** on the Problems
    page to see new ones.
-5. Save your work in the IDE or Jupyter as you go. Ask your interviewer if anything is
-   unclear.
+5. Save your work in the IDE or Jupyter as you go, and ask your interviewer if anything
+   is unclear.
 
 ## What's provided
 
-- {icon:problems} **Problems** — Your assigned problems; your interviewer releases each
-  question as you go.
-- {icon:gemini} **Gemini** — Chat playground **plus a Gemini API key that is already
-  provided** — call it from your own code; no key or account of your own is needed.
+- {icon:problems} **Problems** — Your tasks for this interview, released by your
+  interviewer as you progress.
+- {icon:gemini} **Gemini** — Chat playground, **and a Gemini API key that is already
+  provided**. Call it from your own code; no key or account of your own is needed.
 - {icon:ide} **IDE** — VS Code, in the browser.
 - {icon:jupyter} **Jupyter** — JupyterLab notebooks.
 - {icon:terminal} **Terminal** — A shell, inside the IDE.
