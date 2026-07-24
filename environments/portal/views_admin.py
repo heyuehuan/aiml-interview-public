@@ -421,9 +421,9 @@ def session_handout(s, url):
       <p class="sub">Candidate information sheet</p></div>
   </div>
 
-  <p class="welcome">Welcome, and thank you for interviewing with us. Everything you need
-    for today's session runs in your browser — no setup, no downloads. Take a moment to
-    read this page before you start.</p>
+  <p class="welcome">Welcome, and thank you for joining us. Everything you need
+    for today's session runs in your browser (no need for setup or downloads).
+    Please take a moment to read this page before you start.</p>
 
   <div class="keys">
     <div class="keybox"><p class="cap">Go to</p>
