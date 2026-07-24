@@ -48,6 +48,8 @@ def healthz(req):
 
 
 UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me")
+# Candidate-facing URL printed on the handout — not used for routing.
+PUBLIC_URL = os.environ.get("PORTAL_PUBLIC_URL", "https://interview.example.com/")
 
 
 def _problems_page(who, deliver_report=None, notice=None):
@@ -235,6 +237,22 @@ def detail(req, sid):
     return Response.html(views.admin_session_detail(
         who, s, moderation=_moderation_state(s), notice=req.query.get("notice"),
         reactivate=reactivate))
+
+
+@router.route("GET", "/admin/sessions/<sid>/handout")
+def handout(req, sid):
+    """Print-to-PDF information sheet the interviewer hands the candidate: URL, access
+    code, instructions, terms and a one-line summary of each tool. Admin-only — it
+    carries the access code, so it must never be candidate-reachable."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    return Response.html(views.session_handout(s, PUBLIC_URL))
 
 
 # --- LLM transcript viewer --------------------------------------------------

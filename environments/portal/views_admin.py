@@ -10,6 +10,7 @@ import urllib.parse
 from datetime import datetime, timezone
 
 import theme
+import views
 from theme import esc
 
 
@@ -294,7 +295,10 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None):
     dl = "".join(f'<dt>{esc(k)}</dt><dd class="mono">{esc(v)}</dd>' for k, v in fields)
     body = f"""{theme.flash(notice)}
 <div class="box">
-  <div class="box-header"><h2>Details</h2></div>
+  <div class="box-header"><h2>Details</h2>
+    <a class="btn btn-sm" href="/admin/sessions/{sid}/handout" target="_blank" rel="noopener"
+       title="Print the candidate's URL, access code, instructions and terms">Export PDF handout</a>
+  </div>
   <div class="box-body"><dl class="dl-grid">{dl}</dl></div>
 </div>
 <div class="box">
@@ -304,6 +308,147 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None):
 {_moderation_panel(sid, s, moderation)}
 {theme.confirm_dialog()}"""
     return _detail_page(f"{s['candidate_name']} · Admin", body, who, s, "overview")
+
+
+# --- candidate handout (print → PDF) ----------------------------------------
+# One-line summary per home-page tile, in the same order the candidate sees them.
+# Icons are shared with the candidate home page so paper and screen match.
+_HANDOUT_TOOLS = [
+    (views._SVG_PROBLEMS, "Problems",
+     "Your assigned problems — your interviewer releases each question as you go."),
+    (theme.GEMINI_MARK, "Gemini",
+     "Chat playground <b>plus a Gemini API key that is already provided</b> — call it "
+     "from your own code; no key or account of your own is needed."),
+    (views._SVG_IDE, "IDE", "VS Code, in the browser."),
+    (views._SVG_JUPYTER, "Jupyter", "JupyterLab notebooks."),
+    (views._SVG_TERMINAL, "Terminal", "A shell, inside the IDE."),
+]
+
+_HANDOUT_STEPS = [
+    "Open the URL above in any browser.",
+    "Enter your access code, then read and accept the terms to begin. "
+    "<b>Your time starts when you accept</b> — the clock is shown in the top-right corner.",
+    "Pick a tool from the home page. Everything runs in the browser; nothing to install.",
+    "Problems appear as your interviewer releases them — press <b>Refresh</b> on the "
+    "Problems page to see new ones.",
+    "Save your work in the IDE or Jupyter as you go. Ask your interviewer if anything "
+    "is unclear.",
+]
+
+# Deliberately standalone (no dark theme, no app chrome): this document exists to be
+# printed to PDF, so it is sized to one page and styled black-on-white.
+_HANDOUT_CSS = """
+/* No `size:` — the sheet fits A4 and Letter, so let the printer's paper win. */
+@page { margin: 13mm; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f6f8fa; color: #111;
+  font: 10.5pt/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.sheet { background: #fff; max-width: 190mm; margin: 16px auto; padding: 14mm; }
+.toolbar { max-width: 190mm; margin: 16px auto -8px; display: flex; gap: 8px;
+  justify-content: flex-end; }
+.toolbar a, .toolbar button { font: inherit; font-size: 9.5pt; padding: 5px 14px;
+  border-radius: 6px; border: 1px solid #d0d7de; background: #fff; color: #111;
+  text-decoration: none; cursor: pointer; }
+.toolbar button { background: #1f883d; border-color: #1a7f37; color: #fff; }
+
+.head { display: flex; align-items: center; gap: 10px;
+  border-bottom: 2px solid #111; padding-bottom: 9px; }
+.head svg { width: 30px; height: 30px; color: #111; }
+.head h1 { font-size: 15pt; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+.head .sub { margin: 1px 0 0; font-size: 9pt; color: #57606a; }
+
+.welcome { margin: 12px 0 0; font-size: 11pt; }
+.welcome b { font-weight: 700; }
+
+.keys { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 0; }
+.keybox { border: 2px solid #111; border-radius: 8px; padding: 9px 16px; text-align: center; }
+.keybox .cap { font-size: 8pt; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: #57606a; margin: 0 0 3px; }
+.keybox .url { font-size: 18pt; font-weight: 700; line-height: 1.2;
+  overflow-wrap: break-word; }
+.keybox .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 30pt; font-weight: 700; letter-spacing: .18em; text-indent: .18em;
+  line-height: 1.15; }
+
+h2.sec { font-size: 9pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: #57606a; margin: 15px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #d0d7de; }
+
+ol.steps { margin: 0; padding-left: 18px; }
+ol.steps li { margin: 3px 0; }
+
+ul.tools { list-style: none; margin: 0; padding: 0; }
+ul.tools li { display: flex; align-items: flex-start; gap: 8px; margin: 5px 0; }
+ul.tools svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+ul.tools .nm { font-weight: 700; }
+
+.terms { white-space: pre-wrap; font-size: 9pt; line-height: 1.4; color: #24292f; }
+
+.foot { margin-top: 16px; border-top: 1px solid #d0d7de; padding-top: 8px;
+  display: flex; justify-content: space-between; gap: 12px; font-size: 8.5pt;
+  color: #57606a; }
+.foot .cr { white-space: nowrap; }
+.foot .note { font-weight: 700; color: #111; text-align: right; }
+
+@media print {
+  body { background: #fff; }
+  .toolbar { display: none; }
+  .sheet { margin: 0; padding: 0; max-width: none; }
+}
+"""
+
+
+def session_handout(s, url):
+    """Printable one-page information sheet for the candidate: where to go, the access
+    code, what to do, what they get, and the terms (informational — acceptance still
+    happens in the portal). Print-to-PDF from the browser; no PDF dependency."""
+    terms = s.get("terms_text") or views.DEFAULT_TERMS
+    steps = "".join(f"<li>{t}</li>" for t in _HANDOUT_STEPS)
+    tools = "".join(f'<li>{ico}<span><span class="nm">{esc(name)}</span> — {desc}</span></li>'
+                    for ico, name, desc in _HANDOUT_TOOLS)
+    return f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview handout — {esc(s['candidate_name'])}</title>
+<style>{_HANDOUT_CSS}</style></head>
+<body>
+<div class="toolbar">
+  <a href="/admin/sessions/{esc(s['id'])}">← Back to session</a>
+  <button type="button" onclick="window.print()">Print / Save as PDF</button>
+</div>
+<div class="sheet">
+  <div class="head">
+    {theme.BRAND_MARK}
+    <div><h1>Technical Interview Platform</h1>
+      <p class="sub">Candidate information sheet</p></div>
+  </div>
+
+  <p class="welcome">Welcome, and thank you for interviewing with us. Everything you need
+    for today's session runs in your browser — no setup, no downloads. Take a moment to
+    read this page before you start.</p>
+
+  <div class="keys">
+    <div class="keybox"><p class="cap">Go to</p>
+      <div class="url">{esc(url)}</div></div>
+    <div class="keybox"><p class="cap">Access code</p>
+      <div class="code">{esc(s['access_code'])}</div></div>
+  </div>
+
+  <h2 class="sec">Getting started</h2>
+  <ol class="steps">{steps}</ol>
+
+  <h2 class="sec">What's provided</h2>
+  <ul class="tools">{tools}</ul>
+
+  <h2 class="sec">Terms</h2>
+  <div class="terms">{esc(terms)}</div>
+
+  <div class="foot">
+    <span class="cr">&copy; 2026 Technical Interview Platform</span>
+    <span class="note">Please close all pages after the interview concludes, and do not
+      take this paper with you.</span>
+  </div>
+</div>
+<script>window.addEventListener('load', function(){{ window.print(); }});</script>
+</body></html>"""
 
 
 # --- Problems tab -----------------------------------------------------------
