@@ -57,6 +57,8 @@ services:
       # Candidate-facing URL printed on the admin's PDF handout. Display
       # only — nothing routes on it.
       PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-https://interview.example.com/}
+      # Editable wording for that handout, from the ../config mount below.
+      HANDOUT_FILE: /srv/config/handout.md
       # export/reset scripts (mounted at /srv/scripts below).
       SCRIPTS_DIR: /srv/scripts
       # No insecure default: .env must set this (dev value lives in .env.example).
@@ -70,6 +72,7 @@ services:
       - ./portal:/app:ro
       - ../problems:/srv/problems:ro
       - ../scripts:/srv/scripts:ro   # export/reset scripts (integrations.py runs these)
+      - ../config:/srv/config:ro     # operator-editable copy (handout.md) — portal/admin only
       - platform_data:/data
       - control:/control
       - problems_seed:/problems_seed
@@ -97,6 +100,7 @@ services:
       - ./portal:/app:ro
       - ../problems:/srv/problems:ro
       - ../scripts:/srv/scripts:ro   # export/reset scripts (integrations.py runs these)
+      - ../config:/srv/config:ro     # operator-editable copy (handout.md) — portal/admin only
       - platform_data:/data
       - control:/control
       - problems_seed:/problems_seed

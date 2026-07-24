@@ -92,5 +92,9 @@ python -m pytest tests/            # state machine + code tests
 `ADMIN_PASSWORD_HASH`, `PLATFORM_DB`, `DATA_DIR`, `CONTROL_FILE`, `PROBLEMS_SEED_DIR`,
 `PROBLEMS_REGISTRY`, `LLM_ADMIN_URL`, `LLM_BASE_URL`, `CODE_GRACE_MINUTES` (default 60),
 `PORTAL_PUBLIC_URL` (default `https://interview.example.com/` — the URL printed on the
-admin's candidate handout; display only).
+admin's candidate handout; display only), `HANDOUT_FILE` (default `/srv/config/handout.md`).
+
+The handout's *wording* is not code: it lives in `config/handout.md` at the repo root
+(Markdown + a small frontmatter block, read on every request — edit and print, no
+restart). `handout.py` loads it; `views_admin.session_handout` supplies only the layout.
 Secrets stay in host `.env` — never committed, never in the workspace (CLAUDE.md).
