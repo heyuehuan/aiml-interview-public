@@ -9,6 +9,7 @@ from __future__ import annotations
 import urllib.parse
 from datetime import datetime, timezone
 
+import handout
 import theme
 import views
 from theme import esc
@@ -311,30 +312,9 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None):
 
 
 # --- candidate handout (print → PDF) ----------------------------------------
-# One-line summary per home-page tile, in the same order the candidate sees them.
-# Icons are shared with the candidate home page so paper and screen match.
-_HANDOUT_TOOLS = [
-    (views._SVG_PROBLEMS, "Problems",
-     "Your assigned problems — your interviewer releases each question as you go."),
-    (theme.GEMINI_MARK, "Gemini",
-     "Chat playground <b>plus a Gemini API key that is already provided</b> — call it "
-     "from your own code; no key or account of your own is needed."),
-    (views._SVG_IDE, "IDE", "VS Code, in the browser."),
-    (views._SVG_JUPYTER, "Jupyter", "JupyterLab notebooks."),
-    (views._SVG_TERMINAL, "Terminal", "A shell, inside the IDE."),
-]
-
-_HANDOUT_STEPS = [
-    "Open the URL above in any browser.",
-    "Enter your access code, then read and accept the terms to begin. "
-    "<b>Your time starts when you accept</b> — the clock is shown in the top-right corner.",
-    "Pick a tool from the home page. Everything runs in the browser; nothing to install.",
-    "Problems appear as your interviewer releases them — press <b>Refresh</b> on the "
-    "Problems page to see new ones.",
-    "Save your work in the IDE or Jupyter as you go. Ask your interviewer if anything "
-    "is unclear.",
-]
-
+# Wording lives in config/handout.md; handout.py reads it per request.
+# Only the sheet's layout is here.
+#
 # Deliberately standalone (no dark theme, no app chrome): this document exists to be
 # printed to PDF, so it is sized to one page and styled black-on-white.
 _HANDOUT_CSS = """
@@ -357,8 +337,8 @@ body { margin: 0; background: #f6f8fa; color: #111;
 .head h1 { font-size: 15pt; font-weight: 700; margin: 0; letter-spacing: -.01em; }
 .head .sub { margin: 1px 0 0; font-size: 9pt; color: #57606a; }
 
-.welcome { margin: 12px 0 0; font-size: 11pt; }
-.welcome b { font-weight: 700; }
+.lead { margin: 12px 0 0; font-size: 11pt; }
+.lead p { margin: 0 0 4px; }
 
 .keys { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 0; }
 .keybox { border: 2px solid #111; border-radius: 8px; padding: 9px 16px; text-align: center; }
@@ -370,18 +350,24 @@ body { margin: 0; background: #f6f8fa; color: #111;
   font-size: 30pt; font-weight: 700; letter-spacing: .18em; text-indent: .18em;
   line-height: 1.15; }
 
-h2.sec { font-size: 9pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-  color: #57606a; margin: 15px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #d0d7de; }
+/* Everything below styles what mdrender emits from config/handout.md. `##` in that
+   file arrives here as <h3> (mdrender demotes one level); h2/h4 are styled the same
+   so a `#` or `###` heading still reads as a section rule. */
+.content h2, .content h3, .content h4 { font-size: 9pt; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; color: #57606a; margin: 15px 0 6px;
+  padding-bottom: 4px; border-bottom: 1px solid #d0d7de; }
+.content p { margin: 5px 0; }
+.content ol, .content ul { margin: 0; padding-left: 18px; }
+.content li { margin: 4px 0; }
+/* A list item opening with {icon:…}: the icon replaces the bullet. */
+.content li.ico { list-style: none; margin-left: -18px; display: flex;
+  align-items: flex-start; gap: 8px; }
+.content svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.content code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9.5pt; }
 
-ol.steps { margin: 0; padding-left: 18px; }
-ol.steps li { margin: 3px 0; }
-
-ul.tools { list-style: none; margin: 0; padding: 0; }
-ul.tools li { display: flex; align-items: flex-start; gap: 8px; margin: 5px 0; }
-ul.tools svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
-ul.tools .nm { font-weight: 700; }
-
-.terms { white-space: pre-wrap; font-size: 9pt; line-height: 1.4; color: #24292f; }
+.terms { display: block; white-space: pre-wrap; font-size: 9pt; line-height: 1.4;
+  color: #24292f; }
 
 .foot { margin-top: 16px; border-top: 1px solid #d0d7de; padding-top: 8px;
   display: flex; justify-content: space-between; gap: 12px; font-size: 8.5pt;
@@ -400,11 +386,16 @@ ul.tools .nm { font-weight: 700; }
 def session_handout(s, url):
     """Printable one-page information sheet for the candidate: where to go, the access
     code, what to do, what they get, and the terms (informational — acceptance still
-    happens in the portal). Print-to-PDF from the browser; no PDF dependency."""
-    terms = s.get("terms_text") or views.DEFAULT_TERMS
-    steps = "".join(f"<li>{t}</li>" for t in _HANDOUT_STEPS)
-    tools = "".join(f'<li>{ico}<span><span class="nm">{esc(name)}</span> — {desc}</span></li>'
-                    for ico, name, desc in _HANDOUT_TOOLS)
+    happens in the portal). Print-to-PDF from the browser; no PDF dependency.
+
+    The wording comes from config/handout.md via handout.content(); this function owns
+    only the frame around it — brand mark, the URL/access-code boxes, and the footer."""
+    c = handout.content({
+        "url": url,
+        "access_code": s["access_code"],
+        "candidate_name": s["candidate_name"],
+        "terms": s.get("terms_text") or views.DEFAULT_TERMS,
+    })
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Interview handout — {esc(s['candidate_name'])}</title>
@@ -417,34 +408,24 @@ def session_handout(s, url):
 <div class="sheet">
   <div class="head">
     {theme.BRAND_MARK}
-    <div><h1>Technical Interview Platform</h1>
-      <p class="sub">Candidate information sheet</p></div>
+    <div><h1>{esc(c['title'])}</h1>
+      <p class="sub">{esc(c['subtitle'])}</p></div>
   </div>
 
-  <p class="welcome">Welcome, and thank you for joining us. Everything you need
-    for today's session runs in your browser (no need for setup or downloads).
-    Please take a moment to read this page before you start.</p>
+  <div class="lead">{c['lead_html']}</div>
 
   <div class="keys">
-    <div class="keybox"><p class="cap">Go to</p>
+    <div class="keybox"><p class="cap">{esc(c['url_label'])}</p>
       <div class="url">{esc(url)}</div></div>
-    <div class="keybox"><p class="cap">Access code</p>
+    <div class="keybox"><p class="cap">{esc(c['code_label'])}</p>
       <div class="code">{esc(s['access_code'])}</div></div>
   </div>
 
-  <h2 class="sec">Getting started</h2>
-  <ol class="steps">{steps}</ol>
-
-  <h2 class="sec">What's provided</h2>
-  <ul class="tools">{tools}</ul>
-
-  <h2 class="sec">Terms</h2>
-  <div class="terms">{esc(terms)}</div>
+  <div class="content">{c['body_html']}</div>
 
   <div class="foot">
-    <span class="cr">&copy; 2026 Technical Interview Platform</span>
-    <span class="note">Please close all pages after the interview concludes, and do not
-      take this paper with you.</span>
+    <span class="cr">{esc(c['copyright'])}</span>
+    <span class="note">{esc(c['notice'])}</span>
   </div>
 </div>
 <script>window.addEventListener('load', function(){{ window.print(); }});</script>
