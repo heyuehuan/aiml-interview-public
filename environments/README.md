@@ -6,9 +6,10 @@ proxy that fronts it.
 ## What's here
 
 - `compose.yaml` — the stack: `caddy` (reverse proxy), `code-server`, `jupyterlab`,
-  `portal` (:8000) + `admin` (:8001). Shared `workspace` volume; `control` +
-  `problems_seed` volumes carry the live session to the tools; only the proxy publishes
-  a host port.
+  `portal` (:8000) + `admin` (:8001). Shared `workspace` volume; the `control` volume
+  carries the live session to the tools. `problems_seed` is mounted into portal/admin
+  only — never into the candidate-reachable `code-server`/`jupyterlab`, where a shell
+  could read unreleased problems off it. Only the proxy publishes a host port.
 - `Dockerfile.workspace` — python 3.12 + trimmed tier-1 ML stack + code-server +
   JupyterLab (one image, run as two services). Launched by `workspace/entrypoint.sh`
   as a non-root per-session user. Package list: `../infra/images/base-image-spec.md`.

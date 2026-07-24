@@ -158,14 +158,13 @@ services:
       WORKSPACE_TOOL: code-server
       CONTROL_FILE: /control/active.json
       WORKSPACE_DIR: /data/workspace
-      PROBLEMS_SEED_DIR: /problems_seed
-      # Off by design: the moderator releases problems one at a time via the admin
-      # provision/push buttons. 1 restores the old copy-everything-at-start behaviour.
-      WORKSPACE_AUTOSEED: ${WORKSPACE_AUTOSEED:-0}
+    # NO problems_seed mount: the candidate has a shell in here, so a mounted seed would
+    # let them read every packaged problem (theirs unreleased, and other sessions') off
+    # the filesystem and bypass the moderator's release gate. Only portal/admin mount it;
+    # they copy the released problem into the workspace volume on the moderator's action.
     volumes:
       - workspace:/data/workspace
       - control:/control:ro
-      - problems_seed:/problems_seed:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8443/healthz"]
       interval: 10s
@@ -187,15 +186,13 @@ services:
       WORKSPACE_TOOL: jupyter
       CONTROL_FILE: /control/active.json
       WORKSPACE_DIR: /data/workspace
-      PROBLEMS_SEED_DIR: /problems_seed
-      WORKSPACE_AUTOSEED: ${WORKSPACE_AUTOSEED:-0}
       # set to the interview origin in prod so an unrelated site can't drive the
       # candidate's notebook; '*' is the dev default (candidate reaches it same-origin).
       WORKSPACE_ALLOW_ORIGIN: ${WORKSPACE_ALLOW_ORIGIN:-*}
+    # NO problems_seed mount — see code-server above (candidate-reachable container).
     volumes:
       - workspace:/data/workspace
       - control:/control:ro
-      - problems_seed:/problems_seed:ro
     depends_on:
       code-server:
         condition: service_started
