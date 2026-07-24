@@ -159,6 +159,9 @@ services:
       CONTROL_FILE: /control/active.json
       WORKSPACE_DIR: /data/workspace
       PROBLEMS_SEED_DIR: /problems_seed
+      # Off by design: the moderator releases problems one at a time via the admin
+      # provision/push buttons. 1 restores the old copy-everything-at-start behaviour.
+      WORKSPACE_AUTOSEED: ${WORKSPACE_AUTOSEED:-0}
     volumes:
       - workspace:/data/workspace
       - control:/control:ro
@@ -185,6 +188,7 @@ services:
       CONTROL_FILE: /control/active.json
       WORKSPACE_DIR: /data/workspace
       PROBLEMS_SEED_DIR: /problems_seed
+      WORKSPACE_AUTOSEED: ${WORKSPACE_AUTOSEED:-0}
       # set to the interview origin in prod so an unrelated site can't drive the
       # candidate's notebook; '*' is the dev default (candidate reaches it same-origin).
       WORKSPACE_ALLOW_ORIGIN: ${WORKSPACE_ALLOW_ORIGIN:-*}

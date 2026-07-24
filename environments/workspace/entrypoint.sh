@@ -46,12 +46,22 @@ HOME_DIR="/home/$USER_NAME"
 mkdir -p "$WORKDIR"
 ln -sfn "$WORKDIR" "$HOME_DIR/workspace"
 
-# Seed problems (packager output), if present. Only packager-produced content lands
-# here — it already enforces the candidate_paths visibility contract.
-if [ -n "$SEED_DIR" ] && [ -d "$SEED_DIR" ]; then
-  cp -a "$SEED_DIR/." "$WORKDIR/" && log "seeded problems from $SEED_DIR"
-elif [ -d "$SEED_ROOT/$SID" ]; then
-  cp -a "$SEED_ROOT/$SID/." "$WORKDIR/" && log "seeded problems from $SEED_ROOT/$SID"
+# Problems are NOT copied in automatically: the moderator introduces them one at a time.
+# Every other path into the workspace is gated on the per-problem `released` count (the
+# admin provision/full-push buttons, and the candidate's own copy button), so a blanket
+# copy here would hand the candidate every assigned problem's data at session start and
+# bypass that gate entirely. Packaging still runs at activation — the seed sits in
+# $SEED_ROOT/$SID waiting to be released, which is what the admin buttons copy from.
+# Set WORKSPACE_AUTOSEED=1 to restore the old copy-everything behaviour.
+# Only packager-produced content ever lands here — it enforces candidate_paths.
+if [ "${WORKSPACE_AUTOSEED:-0}" = "1" ]; then
+  if [ -n "$SEED_DIR" ] && [ -d "$SEED_DIR" ]; then
+    cp -a "$SEED_DIR/." "$WORKDIR/" && log "seeded problems from $SEED_DIR (WORKSPACE_AUTOSEED=1)"
+  elif [ -d "$SEED_ROOT/$SID" ]; then
+    cp -a "$SEED_ROOT/$SID/." "$WORKDIR/" && log "seeded problems from $SEED_ROOT/$SID (WORKSPACE_AUTOSEED=1)"
+  fi
+else
+  log "auto-seed off: problems are released by the moderator (WORKSPACE_AUTOSEED=1 restores it)"
 fi
 
 chown -R "$USER_NAME:$USER_NAME" "$WORKDIR" "$HOME_DIR"
