@@ -54,6 +54,9 @@ services:
       UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:?UNILLM_MASTER_KEY must be set in .env — see .env.example}
       UNILLM_INTERNAL_URL: ${UNILLM_INTERNAL_URL:-http://unillm:8081/v1}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:8081/v1}
+      # Candidate-facing URL printed on the admin's PDF handout. Display
+      # only — nothing routes on it.
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-https://interview.example.com/}
       # export/reset scripts (mounted at /srv/scripts below).
       SCRIPTS_DIR: /srv/scripts
       # No insecure default: .env must set this (dev value lives in .env.example).
