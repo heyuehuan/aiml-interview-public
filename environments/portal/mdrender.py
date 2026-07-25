@@ -88,6 +88,14 @@ def render(md: str) -> str:
     return "\n".join(out)
 
 
+def inline(text: str) -> str:
+    """Render a single line of Markdown to an inline HTML fragment (no block tags).
+
+    For callers that own the surrounding markup — e.g. the multiple-choice options on
+    the problems page, which become `<label>`s rather than `<li>`s."""
+    return _inline(text or "")
+
+
 def _is_block_start(lines, i) -> bool:
     line = lines[i]
     return bool(

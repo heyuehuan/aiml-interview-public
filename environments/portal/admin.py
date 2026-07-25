@@ -276,6 +276,39 @@ def transcript_view(req, sid):
     return Response.html(views.admin_transcript_page(who, s, data, source=source, query=query))
 
 
+# --- multiple-choice answer sheet ----------------
+@router.route("GET", "/admin/sessions/<sid>/answers")
+def answers_view(req, sid):
+    """What the candidate actually selected on every multiple-choice question, plus the
+    timestamped trail of how they got there. Selections only — the rubric answer key is
+    interviewer material and is never read by this service (visibility contract)."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    saved = model.all_answers(sid)
+    trail = model.answer_trail(sid)
+    released = model.all_released(sid)
+    problems = []
+    for pid in s["problem_ids"] or []:
+        questions = registry.all_question_ids(pid)
+        if not questions:
+            continue  # not an MCQ-bearing problem
+        rows = []
+        for q in questions:
+            rows.append({**q,
+                         "answer": saved.get((pid, q["qid"])),
+                         "released": released.get(pid, 0),
+                         "trail": [t for t in trail
+                                   if t["problem_id"] == pid and t["question_id"] == q["qid"]]})
+        problems.append({"id": pid, "questions": rows})
+    return Response.html(views.admin_answers_page(who, s, problems))
+
+
 # --- candidate workspace file manager ---------------------------------------
 def _workspace_available(s):
     """Whether the live `workspace` volume can be attributed to this session. It is a

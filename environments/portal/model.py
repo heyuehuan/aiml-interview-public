@@ -768,6 +768,157 @@ def is_workspace_authorized(session_id):
     return True
 
 
+# --- multiple-choice answers ---------------------
+# events.jsonl names, the integration contract — the export bundle is read by humans, so the
+# stream says what happened rather than carrying an `action` field.
+_MCQ_EVENT = {"change": "mcq_answer_changed",
+              "submit": "mcq_answer_submitted",
+              "reopen": "mcq_answer_reopened"}
+
+
+def _row_to_answer(row):
+    d = dict(row)
+    d["selected"] = json.loads(d.get("selected") or "[]")
+    d["final"] = bool(d.get("final"))
+    return d
+
+
+def get_answer(session_id, problem_id, question_id):
+    con = db.connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM mcq_answers WHERE session_id=? AND problem_id=? AND question_id=?",
+            (session_id, problem_id, question_id),
+        ).fetchone()
+    finally:
+        con.close()
+    return _row_to_answer(row) if row else None
+
+
+def all_answers(session_id, problem_id=None):
+    """Every recorded answer for a session, newest-updated last. Keyed
+    ``(problem_id, question_id) -> answer`` for the candidate page; the admin sheet
+    walks the same rows."""
+    sql = "SELECT * FROM mcq_answers WHERE session_id=?"
+    args = [session_id]
+    if problem_id:
+        sql += " AND problem_id=?"
+        args.append(problem_id)
+    con = db.connect()
+    try:
+        rows = con.execute(sql + " ORDER BY problem_id, question_id", args).fetchall()
+    finally:
+        con.close()
+    return {(r["problem_id"], r["question_id"]): _row_to_answer(r) for r in rows}
+
+
+def answer_trail(session_id, problem_id=None, question_id=None):
+    """The append-only edit trail, oldest first — first guesses and changes of mind,
+    not just the final state."""
+    sql = "SELECT * FROM mcq_answer_events WHERE session_id=?"
+    args = [session_id]
+    if problem_id:
+        sql += " AND problem_id=?"
+        args.append(problem_id)
+    if question_id:
+        sql += " AND question_id=?"
+        args.append(question_id)
+    con = db.connect()
+    try:
+        rows = con.execute(sql + " ORDER BY id", args).fetchall()
+    finally:
+        con.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["selected"] = json.loads(d.get("selected") or "[]")
+        d["previous"] = json.loads(d.get("previous") or "[]")
+        out.append(d)
+    return out
+
+
+def clean_selection(raw, allowed):
+    """Normalise a posted selection to an ordered, deduplicated list of *allowed* option
+    keys. Anything the released statement doesn't offer is dropped — the client cannot
+    invent options, and order is canonical so 'A,C' and 'C,A' compare equal."""
+    if not isinstance(raw, list):
+        return []
+    keys = {str(k).strip().upper() for k in raw if isinstance(k, (str, int))}
+    return [k for k in allowed if k in keys]
+
+
+def save_answer(session_id, problem_id, question_id, selected, *, allowed,
+                submit=False, actor="candidate"):
+    """Record a candidate's selection.
+
+    Autosave (``submit=False``) and Submit (``submit=True``) share this path. A write
+    that changes nothing — same selection, same final state — is a no-op, so idle
+    re-saves don't pad the trail. Editing a submitted answer *re-opens* it (recorded)
+    rather than silently replacing what they said was final.
+
+    Returns the stored answer dict.
+    """
+    selected = clean_selection(selected, allowed)
+    ts = now_iso()
+
+    con = db.connect()
+    try:
+        # BEGIN IMMEDIATE so the read of the previous state and the write of the next
+        # revision are one atomic step: a candidate ticking several boxes quickly fires
+        # overlapping autosaves, and two of them reading the same revision would both
+        # write revision N+1.
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute(
+            "SELECT * FROM mcq_answers WHERE session_id=? AND problem_id=? AND question_id=?",
+            (session_id, problem_id, question_id),
+        ).fetchone()
+        prev = _row_to_answer(row) if row else None
+        prev_sel = prev["selected"] if prev else []
+        prev_final = bool(prev and prev["final"])
+
+        if selected == prev_sel and prev and prev_final == bool(submit):
+            con.rollback()
+            return prev  # nothing to record
+
+        # change | submit | reopen — a single write is only ever one of these; a submit
+        # that also changes the selection records as `submit` (the payload has both).
+        if submit:
+            action = "submit"
+        elif prev_final:
+            action = "reopen"
+        else:
+            action = "change"
+        final = 1 if submit else 0
+        revision = (prev["revision"] if prev else 0) + 1
+
+        con.execute(
+            "INSERT INTO mcq_answers (session_id, problem_id, question_id, selected, "
+            "revision, final, created_at, updated_at, final_at) VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(session_id, problem_id, question_id) DO UPDATE SET "
+            "selected=excluded.selected, revision=excluded.revision, final=excluded.final, "
+            "updated_at=excluded.updated_at, "
+            # keep the last submission time across a re-open, so 'when did they commit?'
+            # survives a later edit
+            "final_at=CASE WHEN excluded.final=1 THEN excluded.final_at ELSE mcq_answers.final_at END",
+            (session_id, problem_id, question_id, json.dumps(selected), revision, final,
+             ts, ts, ts if final else None),
+        )
+        con.execute(
+            "INSERT INTO mcq_answer_events (session_id, problem_id, question_id, revision, "
+            "action, selected, previous, ts) VALUES (?,?,?,?,?,?,?,?)",
+            (session_id, problem_id, question_id, revision, action,
+             json.dumps(selected), json.dumps(prev_sel), ts),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    record_event(session_id, actor, _MCQ_EVENT[action],
+                 {"problem_id": problem_id, "question_id": question_id,
+                  "selected": selected, "previous": prev_sel, "revision": revision})
+    return get_answer(session_id, problem_id, question_id)
+
+
 # --- Gemini-page chat history ---------------------
 CHAT_TITLE_LEN = 48
 
