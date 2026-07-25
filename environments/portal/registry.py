@@ -183,14 +183,142 @@ def part_meta(problem_id):
     return {"total": max(1, len(subs)), "subs": subs, "has_background": bool(bg.strip())}
 
 
+# --- multiple-choice questions -------------------
+# Conceptual MCQ screens used to leave no record at all — the candidate read the options
+# and answered out loud. We detect option runs structurally so the answers can be
+# captured, without adding a problem.yaml field or rewriting any statement.
+#
+# An option bullet is `- **A.** text` / `- A) text`. A *run* qualifies as a question only
+# when it has >=2 items whose keys are exactly A, B, C, ... in order — that guard makes a
+# false positive on ordinary prose bullets essentially impossible.
+_MCQ_OPTION_RE = re.compile(r"^\s*[-*+]\s+(?:\*\*|__)?([A-Z])[.)](?:\*\*|__)?\s+(\S.*)$")
+_QID_RE = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _qid(title):
+    """Question key from a subproblem heading: 'Q1. What does…' -> 'Q1'."""
+    m = _SUBPROBLEM_RE.match("# " + title)
+    token = m.group(2) if m else title
+    return _QID_RE.sub("", token).upper() or "Q"
+
+
+def _next_key(opts):
+    return chr(ord("A") + len(opts))
+
+
+def _mcq_runs(body):
+    """Find option runs in a subproblem body.
+
+    Returns ``[(start, end, [(key, text), ...]), ...]`` with line indices into
+    ``body.splitlines()``, in document order. Most real options wrap onto indented
+    continuation lines and some statements space their options out with blank lines, so
+    both have to hold a run together — otherwise a four-option question is read as one
+    option and dropped."""
+    lines = body.splitlines()
+    runs, i, n = [], 0, len(lines)
+    while i < n:
+        m = _MCQ_OPTION_RE.match(lines[i])
+        if not m or m.group(1) != "A":  # a run always starts at A
+            i += 1
+            continue
+        start, opts, j = i, [], i
+        while j < n:
+            m = _MCQ_OPTION_RE.match(lines[j])
+            if m:
+                # keys must run A, B, C, ... — anything else is an ordinary bullet list
+                if m.group(1) != _next_key(opts):
+                    break
+                opts.append([m.group(1), m.group(2).strip()])
+                j += 1
+                continue
+            if opts and lines[j].strip() and lines[j][:1] in (" ", "\t"):
+                opts[-1][1] += " " + lines[j].strip()  # wrapped continuation line
+                j += 1
+                continue
+            if opts and not lines[j].strip():  # blank line between options (loose list)
+                k = j
+                while k < n and not lines[k].strip():
+                    k += 1
+                nxt = _MCQ_OPTION_RE.match(lines[k]) if k < n else None
+                if nxt and nxt.group(1) == _next_key(opts):
+                    j = k
+                    continue
+            break
+        if len(opts) >= 2:
+            runs.append((start, j, [(k, t) for k, t in opts]))
+            i = j
+        else:
+            i = start + 1
+    return runs
+
+
+def released_blocks(problem_id, released):
+    """The candidate-visible slice of a statement, as ordered blocks.
+
+    Each block is either ``{"kind": "md", "html": ...}`` or
+    ``{"kind": "mcq", "qid": "Q1", "options": [{"key", "html"}, ...]}``. The caller turns
+    mcq blocks into real inputs (candidate page) or a static list (plain render).
+    Returns ``[]`` when nothing is released yet."""
+    if released < 1:
+        return []
+    bg, subs = split_subproblems(read_problem_md(problem_id))
+    blocks = []
+
+    def add_md(text):
+        if text and text.strip():
+            blocks.append({"kind": "md", "html": mdrender.render(text)})
+
+    add_md(bg)
+    for sub in (subs[:released] if subs else []):
+        body = sub["body"]
+        runs = _mcq_runs(body)
+        if not runs:
+            add_md(body)
+            continue
+        lines = body.splitlines()
+        base, cursor = _qid(sub["title"]), 0
+        for idx, (start, end, opts) in enumerate(runs):
+            add_md("\n".join(lines[cursor:start]))
+            qid = base if idx == 0 else f"{base}-{idx + 1}"
+            blocks.append({"kind": "mcq", "qid": qid,
+                           "options": [{"key": k, "html": mdrender.inline(t)} for k, t in opts]})
+            cursor = end
+        add_md("\n".join(lines[cursor:]))
+    return blocks
+
+
+def question_ids(problem_id, released):
+    """``{question_id: [option keys]}`` for every MCQ question currently released —
+    the portal's allowlist when a candidate posts an answer."""
+    return {b["qid"]: [o["key"] for o in b["options"]]
+            for b in released_blocks(problem_id, released) if b["kind"] == "mcq"}
+
+
+def all_question_ids(problem_id):
+    """Every MCQ question in the whole statement (admin answer sheet), with the
+    subproblem title it belongs to and its option text."""
+    _, subs = split_subproblems(read_problem_md(problem_id))
+    out = []
+    for sub in subs or []:
+        base = _qid(sub["title"])
+        for idx, (_s, _e, opts) in enumerate(_mcq_runs(sub["body"])):
+            out.append({"qid": base if idx == 0 else f"{base}-{idx + 1}",
+                        "title": sub["title"],
+                        "options": [{"key": k, "text": t} for k, t in opts]})
+    return out
+
+
 def render_released(problem_id, released):
-    """Render the candidate-visible slice of a statement as an HTML fragment: the
-    background plus the first ``released`` subproblems. Returns None when nothing is
-    released yet (``released < 1``)."""
+    """Render the candidate-visible slice of a statement as one HTML fragment, with
+    option runs as a static list. Returns None when nothing is released yet."""
     if released < 1:
         return None
-    bg, subs = split_subproblems(read_problem_md(problem_id))
-    if not subs:
-        return mdrender.render(bg)
-    chunks = [bg] + [s["body"] for s in subs[:released]]
-    return mdrender.render("\n\n".join(c for c in chunks if c.strip()))
+    parts = []
+    for b in released_blocks(problem_id, released):
+        if b["kind"] == "md":
+            parts.append(b["html"])
+        else:
+            parts.append("<ul>" + "".join(
+                f'<li><strong>{o["key"]}.</strong> {o["html"]}</li>' for o in b["options"]
+            ) + "</ul>")
+    return "\n".join(parts)

@@ -225,13 +225,42 @@ def problems(req):
     if not s or not s["terms_accepted_at"]:
         return Response.redirect("/")
     released = model.all_released(s["id"])
+    answers = model.all_answers(s["id"])
     items = []
     for m in registry.problem_meta(s["problem_ids"]):
         r = released.get(m["id"], 0)
         if r < 1:
             continue  # not released yet — don't show the problem at all
-        items.append({**m, "released": r, "html": registry.render_released(m["id"], r)})
+        blocks = registry.released_blocks(m["id"], r)
+        for b in blocks:  # hand each MCQ block its saved state so a refresh doesn't lose it
+            if b["kind"] == "mcq":
+                b["answer"] = answers.get((m["id"], b["qid"]))
+        items.append({**m, "released": r, "blocks": blocks})
     return Response.html(views.problems_page(s, items))
+
+
+@router.route("POST", "/api/problems/<pid>/answers/<qid>")
+def save_answer(req, pid, qid):
+    """Candidate saves a multiple-choice selection. Autosave on every
+    toggle; `final: true` is the Submit button. Same gate as `/problems`, plus: the
+    problem must be assigned and the question actually released — a candidate can't
+    answer ahead of the moderator."""
+    s = _current(req)
+    if not s or not s["terms_accepted_at"]:
+        return Response.json({"ok": False, "message": "No active session."}, status=401)
+    if pid not in (s["problem_ids"] or []):
+        return Response.json({"ok": False, "message": "That problem isn't assigned to you."},
+                             status=400)
+    questions = registry.question_ids(pid, model.all_released(s["id"]).get(pid, 0))
+    if qid not in questions:
+        return Response.json({"ok": False, "message": "That question isn't released yet."},
+                             status=400)
+    data = req.json_body()
+    answer = model.save_answer(s["id"], pid, qid, data.get("selected"),
+                               allowed=questions[qid], submit=bool(data.get("final")))
+    return Response.json({"ok": True, "selected": answer["selected"],
+                          "final": answer["final"], "revision": answer["revision"],
+                          "updated_at": answer["updated_at"]})
 
 
 @router.route("POST", "/api/problems/copy")

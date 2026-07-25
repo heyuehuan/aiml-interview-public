@@ -1,5 +1,5 @@
 """Admin panel pages — GitHub-style top tabs: Sessions / Problems / LLM proxy /
-Settings. Session detail has its own sub-nav (Overview / Files / Transcript).
+Settings. Session detail has its own sub-nav (Overview / Files / Answers / Transcript).
 
 All layout comes from theme.py. Routes live in admin.py; every dynamic value
 passes through esc().
@@ -158,6 +158,7 @@ def _detail_nav(sid, active):
     return "".join([
         theme.nav_item(f"/admin/sessions/{sid}", "Overview", active == "overview"),
         theme.nav_item(f"/admin/sessions/{sid}/files", "Files", active == "files"),
+        theme.nav_item(f"/admin/sessions/{sid}/answers", "Answers", active == "answers"),
         theme.nav_item(f"/admin/sessions/{sid}/transcript", "Transcript", active == "transcript"),
     ])
 
@@ -559,6 +560,86 @@ def settings_page(who, notice=None, error=None):
   </div>
 </div>"""
     return _page("Settings · Admin", body, who, tab="settings")
+
+
+# --- multiple-choice answer sheet ----------------
+_TRAIL_LABELS = {"change": "changed", "submit": "submitted", "reopen": "re-opened"}
+
+
+def _answer_status(a):
+    """One label summarising where a question stands: never answered, draft, submitted,
+    or submitted-then-edited (which is the one a reviewer most wants flagged)."""
+    if not a:
+        return '<span class="label">Not answered</span>'
+    if a["final"]:
+        return '<span class="label st-active">Submitted</span>'
+    if a.get("final_at"):
+        return '<span class="label st-closed">Edited after submitting</span>'
+    return '<span class="label st-created">Draft</span>'
+
+
+def _answer_trail(trail):
+    if not trail:
+        return '<p class="muted small" style="margin:8px 0 0">No activity recorded.</p>'
+    rows = "".join(
+        f'<tr><td class="mono small">{_fmt_ts(t["ts"])}</td>'
+        f'<td class="small">{esc(_TRAIL_LABELS.get(t["action"], t["action"]))}</td>'
+        f'<td class="mono small">{esc(", ".join(t["previous"]) or "—")}</td>'
+        f'<td class="mono small"><strong>{esc(", ".join(t["selected"]) or "—")}</strong></td></tr>'
+        for t in trail
+    )
+    return f"""<details style="margin-top:10px">
+  <summary class="muted small">Edit trail — {len(trail)} change{"" if len(trail) == 1 else "s"}</summary>
+  <table class="table" style="margin-top:8px">
+    <thead><tr><th>When (UTC)</th><th>Action</th><th>From</th><th>To</th></tr></thead>
+    <tbody>{rows}</tbody></table>
+</details>"""
+
+
+def _answer_question(q):
+    a = q.get("answer")
+    chosen = set((a or {}).get("selected") or [])
+    opts = "".join(
+        f'<li class="{"mcq-picked" if o["key"] in chosen else "muted"}">'
+        f'<strong>{esc(o["key"])}.</strong> {esc(o["text"])}'
+        f'{" ←" if o["key"] in chosen else ""}</li>'
+        for o in q["options"]
+    )
+    picked = ", ".join(sorted(chosen)) or "—"
+    when = _fmt_ts((a or {}).get("updated_at")) if a else "—"
+    revs = (a or {}).get("revision") or 0
+    return f"""<div class="box" style="margin-bottom:12px">
+  <div class="box-header">
+    <div><h2>{esc(q["title"])}</h2>
+      <p class="muted small mono" style="margin:2px 0 0">{esc(q["qid"])}</p></div>
+    {_answer_status(a)}
+  </div>
+  <div class="box-body">
+    <p style="margin:0 0 8px"><span class="muted small">Selected</span>
+      <span class="mono" style="font-size:16px;font-weight:600">{esc(picked)}</span>
+      <span class="muted small">· {revs} change{"" if revs == 1 else "s"} · last {when}</span></p>
+    <ul style="margin:0;padding-left:20px;line-height:1.6">{opts}</ul>
+    {_answer_trail(q["trail"])}
+  </div>
+</div>"""
+
+
+def admin_answers_page(who, s, problems):
+    """The interviewer's answer sheet. Shows what was selected and when it changed —
+    never a rubric key, which this service does not read."""
+    if not problems:
+        body = ('<div class="box"><div class="blankslate">'
+                'None of this session\'s problems have multiple-choice questions.'
+                '</div></div>')
+    else:
+        body = ""
+        for p in problems:
+            answered = sum(1 for q in p["questions"] if q.get("answer"))
+            body += (f'<h2 class="page-title" style="font-size:16px;margin:16px 0 8px">'
+                     f'{esc(p["id"])} <span class="muted small">— {answered} of '
+                     f'{len(p["questions"])} answered</span></h2>')
+            body += "".join(_answer_question(q) for q in p["questions"])
+    return _detail_page("Answers", body, who, s, "answers")
 
 
 # --- LLM transcript viewer --------------------------------------------------

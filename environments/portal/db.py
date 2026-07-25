@@ -65,6 +65,37 @@ CREATE TABLE IF NOT EXISTS chats (
 );
 CREATE INDEX IF NOT EXISTS chats_by_session ON chats(session_id, updated_at);
 
+-- Multiple-choice answers. `mcq_answers` is the current
+-- selection; `mcq_answer_events` is the append-only trail of how it got there, so a
+-- reviewer can see first guesses and changes of mind, not just the final state. Every
+-- write also lands in events.jsonl, which is what the export bundle carries.
+CREATE TABLE IF NOT EXISTS mcq_answers (
+    session_id  TEXT NOT NULL,
+    problem_id  TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    selected    TEXT NOT NULL DEFAULT '[]',   -- JSON array of option keys, e.g. ["A","C"]
+    revision    INTEGER NOT NULL DEFAULT 0,   -- bumped on every recorded change
+    final       INTEGER NOT NULL DEFAULT 0,   -- 1 = submitted; editing after clears it
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    final_at    TEXT,                         -- last submission (kept across re-opens)
+    PRIMARY KEY (session_id, problem_id, question_id)
+);
+
+CREATE TABLE IF NOT EXISTS mcq_answer_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    problem_id  TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    revision    INTEGER NOT NULL,
+    action      TEXT NOT NULL,                -- change | submit | reopen
+    selected    TEXT NOT NULL,
+    previous    TEXT NOT NULL,
+    ts          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mcq_events_by_session
+    ON mcq_answer_events(session_id, problem_id, question_id, id);
+
 -- One candidate at a time. A partial unique index makes "at most one active
 -- session" a database invariant: every indexed row has state='active', so uniqueness
 -- on that column permits only one. This backstops the application-level check in

@@ -295,6 +295,23 @@ a.tile p {{ margin: 0; color: var(--fg-muted); font-size: 12px; }}
 .md hr {{ border: 0; border-top: 1px solid var(--border-muted); margin: 20px 0; }}
 .md blockquote {{ margin: 12px 0; padding: 0 1em; color: var(--fg-muted);
   border-left: 3px solid var(--border); }}
+
+/* --- selectable multiple-choice options -------- */
+.mcq {{ margin: 12px 0 20px; }}
+.mcq-opts {{ display: flex; flex-direction: column; gap: 6px; }}
+.mcq-opt {{ display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); font-size: 15px; line-height: 1.5; }}
+.mcq-opt:hover {{ border-color: var(--accent); }}
+.mcq-opt.is-on {{ border-color: var(--accent); background: var(--accent-subtle); }}
+.mcq-opt input {{ margin-top: 3px; flex: none; }}
+.mcq-key {{ font-weight: 600; flex: none; }}
+.mcq-text code {{ background: var(--code-bg); border-radius: 6px; padding: .1em .35em;
+  font-size: .85em; }}
+.mcq-foot {{ display: flex; align-items: center; gap: 10px; margin-top: 10px; }}
+.mcq-status {{ color: var(--fg-muted); }}
+.mcq-status.ok {{ color: var(--success); }}
+.mcq-status.err {{ color: var(--danger); }}
 """
 
 # --- brand + icon SVGs ------------------------------------------------------

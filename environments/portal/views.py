@@ -125,9 +125,108 @@ def home(session, remaining_minutes):
 
 
 # --- problems ---------------------------------------------------------------
+# Autosave for multiple-choice answers. Every toggle POSTs the whole selection (the
+# server is the judge of what's valid), so a dropped request can't leave a half-recorded
+# answer — the next toggle re-sends the full state. Plain string, not an f-string: the
+# braces would have to be doubled and this is hard enough to read already.
+_MCQ_JS = """
+(function(){
+  function selection(box){
+    return Array.prototype.slice.call(box.querySelectorAll('input[type=checkbox]'))
+      .filter(function(i){ return i.checked; }).map(function(i){ return i.value; });
+  }
+  function paint(box, ok){
+    box.querySelectorAll('.mcq-opt').forEach(function(l){
+      l.classList.toggle('is-on', l.querySelector('input').checked);
+    });
+    if (ok) { box.querySelector('.mcq-submit').textContent =
+        ok.final ? 'Submitted' : 'Submit answer'; }
+  }
+  function save(box, final){
+    var status = box.querySelector('.mcq-status');
+    var sel = selection(box);
+    status.className = 'mcq-status small';
+    status.textContent = final ? 'Submitting…' : 'Saving…';
+    return fetch('/api/problems/' + encodeURIComponent(box.dataset.pid) +
+                 '/answers/' + encodeURIComponent(box.dataset.qid),
+                 {method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({selected: sel, final: !!final})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || !d.ok) {
+          status.className = 'mcq-status small err';
+          status.textContent = (d && d.message) || 'Not saved — try again.';
+          return;
+        }
+        paint(box, d);
+        status.className = 'mcq-status small' + (d.final ? ' ok' : '');
+        status.textContent = d.final ? 'Submitted ✓'
+          : (d.selected.length ? 'Saved as draft — submit when you\\'re happy with it.'
+                               : 'Select all that apply.');
+      })
+      .catch(function(){
+        status.className = 'mcq-status small err';
+        status.textContent = 'Not saved — check your connection and try again.';
+      });
+  }
+  document.querySelectorAll('.mcq').forEach(function(box){
+    box.querySelectorAll('input[type=checkbox]').forEach(function(input){
+      input.addEventListener('change', function(){ paint(box); save(box, false); });
+    });
+    box.querySelector('.mcq-submit').addEventListener('click', function(){
+      save(box, true);
+    });
+  });
+})();
+"""
+
+
+def _mcq_block(pid, block):
+    """One multiple-choice question as real inputs.
+
+    Checkboxes, not radios: several options may be right, and a partial selection is
+    itself signal. Every toggle autosaves; **Submit answer** marks it final. The saved
+    state is rendered server-side so a refresh — or a reconnect on a new device — shows
+    the candidate what they already chose."""
+    ans = block.get("answer") or {}
+    chosen = set(ans.get("selected") or [])
+    final = bool(ans.get("final"))
+    opts = "".join(
+        f'<label class="mcq-opt{" is-on" if o["key"] in chosen else ""}">'
+        f'<input type="checkbox" value="{esc(o["key"])}"{" checked" if o["key"] in chosen else ""}>'
+        f'<span class="mcq-key">{esc(o["key"])}</span>'
+        f'<span class="mcq-text">{o["html"]}</span></label>'
+        for o in block["options"]
+    )
+    if final:
+        status, cls = "Submitted ✓", "ok"
+    elif chosen:
+        status, cls = "Saved as draft — submit when you're happy with it.", ""
+    else:
+        status, cls = "Select all that apply.", ""
+    return f"""<div class="mcq" data-pid="{esc(pid)}" data-qid="{esc(block['qid'])}">
+  <div class="mcq-opts">{opts}</div>
+  <div class="mcq-foot">
+    <button type="button" class="btn btn-sm mcq-submit">{'Submitted' if final else 'Submit answer'}</button>
+    <span class="mcq-status small {cls}">{esc(status)}</span>
+  </div>
+</div>"""
+
+
+def _problem_body(p):
+    """A released statement: Markdown chunks as-is, option runs as selectable inputs."""
+    out = []
+    for b in p.get("blocks") or []:
+        if b["kind"] == "mcq":
+            out.append(_mcq_block(p["id"], b))
+        else:
+            out.append(f'<div class="md">{b["html"]}</div>')
+    return "".join(out)
+
+
 def problems_page(session, items=None):
     """Moderated problems page. ``items`` are the released problems only (each
-    ``{id, title, summary, released, html}``) — a problem with nothing released is not
+    ``{id, title, summary, released, blocks}``) — a problem with nothing released is not
     shown at all. Statements render inline; the copy button ships ``data/`` only."""
     items = items or []
     cards = "".join(
@@ -137,7 +236,7 @@ def problems_page(session, items=None):
       <p class="muted small mono" style="margin:2px 0 0">{esc(p['id'])}/</p></div>
     <button type="button" class="btn btn-sm copy-btn" data-pid="{esc(p['id'])}">Copy data to workspace</button>
   </div>
-  <div class="box-body md">{p['html']}</div>
+  <div class="box-body">{_problem_body(p)}</div>
 </div>"""
         for p in items
     ) or '<div class="box"><div class="blankslate">No problems released yet.<br>Your interviewer will release them as you go — refresh to check.</div></div>'
@@ -170,7 +269,8 @@ def problems_page(session, items=None):
     }});
   }});
 }})();
-</script>"""
+</script>
+<script>{_MCQ_JS}</script>"""
     return theme.page("Problems", body,
                       header_ctx="Problems",
                       header_right=_session_header_right(session),
