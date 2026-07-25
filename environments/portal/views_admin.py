@@ -360,9 +360,12 @@ body { margin: 0; background: #f6f8fa; color: #111;
 .content p { margin: 5px 0; }
 .content ol, .content ul { margin: 0; padding-left: 18px; }
 .content li { margin: 4px 0; }
-/* A list item opening with {icon:…}: the icon replaces the bullet. */
+/* A list item opening with {icon:…}: the icon replaces the bullet. Exactly two flex
+   children — icon, then a <span> holding all the text (handout._ICON_LI adds it), so the
+   8px gap lands once and the prose wraps as one paragraph. */
 .content li.ico { list-style: none; margin-left: -18px; display: flex;
   align-items: flex-start; gap: 8px; }
+.content li.ico > span { flex: 1; min-width: 0; }
 .content svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
 .content code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 9.5pt; }
