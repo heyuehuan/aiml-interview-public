@@ -563,19 +563,12 @@ def settings_page(who, notice=None, error=None):
 
 
 # --- multiple-choice answer sheet ----------------
-_TRAIL_LABELS = {"change": "changed", "submit": "submitted", "reopen": "re-opened"}
-
-
 def _answer_status(a):
-    """One label summarising where a question stands: never answered, draft, submitted,
-    or submitted-then-edited (which is the one a reviewer most wants flagged)."""
+    """Where a question stands. There is no submit step, so this is binary — answered or
+    not — and 'answered' includes deliberately clearing every box."""
     if not a:
         return '<span class="label">Not answered</span>'
-    if a["final"]:
-        return '<span class="label st-active">Submitted</span>'
-    if a.get("final_at"):
-        return '<span class="label st-closed">Edited after submitting</span>'
-    return '<span class="label st-created">Draft</span>'
+    return '<span class="label st-active">Answered</span>'
 
 
 def _answer_trail(trail):
@@ -583,7 +576,6 @@ def _answer_trail(trail):
         return '<p class="muted small" style="margin:8px 0 0">No activity recorded.</p>'
     rows = "".join(
         f'<tr><td class="mono small">{_fmt_ts(t["ts"])}</td>'
-        f'<td class="small">{esc(_TRAIL_LABELS.get(t["action"], t["action"]))}</td>'
         f'<td class="mono small">{esc(", ".join(t["previous"]) or "—")}</td>'
         f'<td class="mono small"><strong>{esc(", ".join(t["selected"]) or "—")}</strong></td></tr>'
         for t in trail
@@ -591,7 +583,7 @@ def _answer_trail(trail):
     return f"""<details style="margin-top:10px">
   <summary class="muted small">Edit trail — {len(trail)} change{"" if len(trail) == 1 else "s"}</summary>
   <table class="table" style="margin-top:8px">
-    <thead><tr><th>When (UTC)</th><th>Action</th><th>From</th><th>To</th></tr></thead>
+    <thead><tr><th>When (UTC)</th><th>From</th><th>To</th></tr></thead>
     <tbody>{rows}</tbody></table>
 </details>"""
 

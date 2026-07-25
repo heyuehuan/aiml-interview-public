@@ -125,32 +125,30 @@ def home(session, remaining_minutes):
 
 
 # --- problems ---------------------------------------------------------------
-# Autosave for multiple-choice answers. Every toggle POSTs the whole selection (the
-# server is the judge of what's valid), so a dropped request can't leave a half-recorded
-# answer — the next toggle re-sends the full state. Plain string, not an f-string: the
-# braces would have to be doubled and this is hard enough to read already.
+# Saving for multiple-choice answers. There is no submit button — ticking a box is the
+# answer — so every toggle POSTs the whole selection (the server is the judge of what's
+# valid). Sending the full state each time means a dropped request can't leave a
+# half-recorded answer: the next toggle re-sends everything. Plain string, not an
+# f-string: the braces would all have to be doubled.
 _MCQ_JS = """
 (function(){
   function selection(box){
     return Array.prototype.slice.call(box.querySelectorAll('input[type=checkbox]'))
       .filter(function(i){ return i.checked; }).map(function(i){ return i.value; });
   }
-  function paint(box, ok){
+  function paint(box){
     box.querySelectorAll('.mcq-opt').forEach(function(l){
       l.classList.toggle('is-on', l.querySelector('input').checked);
     });
-    if (ok) { box.querySelector('.mcq-submit').textContent =
-        ok.final ? 'Submitted' : 'Submit answer'; }
   }
-  function save(box, final){
+  function save(box){
     var status = box.querySelector('.mcq-status');
-    var sel = selection(box);
     status.className = 'mcq-status small';
-    status.textContent = final ? 'Submitting…' : 'Saving…';
+    status.textContent = 'Saving…';
     return fetch('/api/problems/' + encodeURIComponent(box.dataset.pid) +
                  '/answers/' + encodeURIComponent(box.dataset.qid),
                  {method:'POST', headers:{'Content-Type':'application/json'},
-                  body: JSON.stringify({selected: sel, final: !!final})})
+                  body: JSON.stringify({selected: selection(box)})})
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (!d || !d.ok) {
@@ -158,11 +156,8 @@ _MCQ_JS = """
           status.textContent = (d && d.message) || 'Not saved — try again.';
           return;
         }
-        paint(box, d);
-        status.className = 'mcq-status small' + (d.final ? ' ok' : '');
-        status.textContent = d.final ? 'Submitted ✓'
-          : (d.selected.length ? 'Saved as draft — submit when you\\'re happy with it.'
-                               : 'Select all that apply.');
+        status.className = 'mcq-status small ok';
+        status.textContent = 'Answer saved';
       })
       .catch(function(){
         status.className = 'mcq-status small err';
@@ -171,10 +166,7 @@ _MCQ_JS = """
   }
   document.querySelectorAll('.mcq').forEach(function(box){
     box.querySelectorAll('input[type=checkbox]').forEach(function(input){
-      input.addEventListener('change', function(){ paint(box); save(box, false); });
-    });
-    box.querySelector('.mcq-submit').addEventListener('click', function(){
-      save(box, true);
+      input.addEventListener('change', function(){ paint(box); save(box); });
     });
   });
 })();
@@ -185,12 +177,11 @@ def _mcq_block(pid, block):
     """One multiple-choice question as real inputs.
 
     Checkboxes, not radios: several options may be right, and a partial selection is
-    itself signal. Every toggle autosaves; **Submit answer** marks it final. The saved
-    state is rendered server-side so a refresh — or a reconnect on a new device — shows
-    the candidate what they already chose."""
+    itself signal. There is no submit step — ticking a box *is* the answer, and it saves
+    on the spot. The saved state is rendered server-side so a refresh, or a reconnect on
+    another device, shows the candidate what they already chose."""
     ans = block.get("answer") or {}
     chosen = set(ans.get("selected") or [])
-    final = bool(ans.get("final"))
     opts = "".join(
         f'<label class="mcq-opt{" is-on" if o["key"] in chosen else ""}">'
         f'<input type="checkbox" value="{esc(o["key"])}"{" checked" if o["key"] in chosen else ""}>'
@@ -198,18 +189,9 @@ def _mcq_block(pid, block):
         f'<span class="mcq-text">{o["html"]}</span></label>'
         for o in block["options"]
     )
-    if final:
-        status, cls = "Submitted ✓", "ok"
-    elif chosen:
-        status, cls = "Saved as draft — submit when you're happy with it.", ""
-    else:
-        status, cls = "Select all that apply.", ""
     return f"""<div class="mcq" data-pid="{esc(pid)}" data-qid="{esc(block['qid'])}">
   <div class="mcq-opts">{opts}</div>
-  <div class="mcq-foot">
-    <button type="button" class="btn btn-sm mcq-submit">{'Submitted' if final else 'Submit answer'}</button>
-    <span class="mcq-status small {cls}">{esc(status)}</span>
-  </div>
+  <div class="mcq-foot"><span class="mcq-status small"></span></div>
 </div>"""
 
 

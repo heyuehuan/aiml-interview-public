@@ -241,10 +241,10 @@ def problems(req):
 
 @router.route("POST", "/api/problems/<pid>/answers/<qid>")
 def save_answer(req, pid, qid):
-    """Candidate saves a multiple-choice selection. Autosave on every
-    toggle; `final: true` is the Submit button. Same gate as `/problems`, plus: the
-    problem must be assigned and the question actually released — a candidate can't
-    answer ahead of the moderator."""
+    """Candidate saves a multiple-choice selection. Fired on every toggle
+    — there is no submit step, the current selection is the answer. Same gate as
+    `/problems`, plus: the problem must be assigned and the question actually released,
+    so a candidate can't answer ahead of the moderator."""
     s = _current(req)
     if not s or not s["terms_accepted_at"]:
         return Response.json({"ok": False, "message": "No active session."}, status=401)
@@ -255,11 +255,10 @@ def save_answer(req, pid, qid):
     if qid not in questions:
         return Response.json({"ok": False, "message": "That question isn't released yet."},
                              status=400)
-    data = req.json_body()
-    answer = model.save_answer(s["id"], pid, qid, data.get("selected"),
-                               allowed=questions[qid], submit=bool(data.get("final")))
+    answer = model.save_answer(s["id"], pid, qid, req.json_body().get("selected"),
+                               allowed=questions[qid])
     return Response.json({"ok": True, "selected": answer["selected"],
-                          "final": answer["final"], "revision": answer["revision"],
+                          "revision": answer["revision"],
                           "updated_at": answer["updated_at"]})
 
 
