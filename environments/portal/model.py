@@ -769,17 +769,9 @@ def is_workspace_authorized(session_id):
 
 
 # --- multiple-choice answers ---------------------
-# events.jsonl names, the integration contract — the export bundle is read by humans, so the
-# stream says what happened rather than carrying an `action` field.
-_MCQ_EVENT = {"change": "mcq_answer_changed",
-              "submit": "mcq_answer_submitted",
-              "reopen": "mcq_answer_reopened"}
-
-
 def _row_to_answer(row):
     d = dict(row)
     d["selected"] = json.loads(d.get("selected") or "[]")
-    d["final"] = bool(d.get("final"))
     return d
 
 
@@ -848,13 +840,13 @@ def clean_selection(raw, allowed):
 
 
 def save_answer(session_id, problem_id, question_id, selected, *, allowed,
-                submit=False, actor="candidate"):
-    """Record a candidate's selection.
+                actor="candidate"):
+    """Record a candidate's selection. There is no submit step — ticking a box *is* the
+    answer, so every toggle lands here and the latest write is what they answered.
 
-    Autosave (``submit=False``) and Submit (``submit=True``) share this path. A write
-    that changes nothing — same selection, same final state — is a no-op, so idle
-    re-saves don't pad the trail. Editing a submitted answer *re-opens* it (recorded)
-    rather than silently replacing what they said was final.
+    A write that changes nothing is a no-op, so idle re-saves don't pad the trail.
+    Clearing every box is still a recorded answer (the trail keeps what was there
+    before), which is not the same as never touching the question.
 
     Returns the stored answer dict.
     """
@@ -865,8 +857,8 @@ def save_answer(session_id, problem_id, question_id, selected, *, allowed,
     try:
         # BEGIN IMMEDIATE so the read of the previous state and the write of the next
         # revision are one atomic step: a candidate ticking several boxes quickly fires
-        # overlapping autosaves, and two of them reading the same revision would both
-        # write revision N+1.
+        # overlapping saves, and two of them reading the same revision would both write
+        # revision N+1.
         con.execute("BEGIN IMMEDIATE")
         row = con.execute(
             "SELECT * FROM mcq_answers WHERE session_id=? AND problem_id=? AND question_id=?",
@@ -874,46 +866,31 @@ def save_answer(session_id, problem_id, question_id, selected, *, allowed,
         ).fetchone()
         prev = _row_to_answer(row) if row else None
         prev_sel = prev["selected"] if prev else []
-        prev_final = bool(prev and prev["final"])
 
-        if selected == prev_sel and prev and prev_final == bool(submit):
+        if prev and selected == prev_sel:
             con.rollback()
             return prev  # nothing to record
 
-        # change | submit | reopen — a single write is only ever one of these; a submit
-        # that also changes the selection records as `submit` (the payload has both).
-        if submit:
-            action = "submit"
-        elif prev_final:
-            action = "reopen"
-        else:
-            action = "change"
-        final = 1 if submit else 0
         revision = (prev["revision"] if prev else 0) + 1
-
         con.execute(
             "INSERT INTO mcq_answers (session_id, problem_id, question_id, selected, "
-            "revision, final, created_at, updated_at, final_at) VALUES (?,?,?,?,?,?,?,?,?) "
+            "revision, created_at, updated_at) VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT(session_id, problem_id, question_id) DO UPDATE SET "
-            "selected=excluded.selected, revision=excluded.revision, final=excluded.final, "
-            "updated_at=excluded.updated_at, "
-            # keep the last submission time across a re-open, so 'when did they commit?'
-            # survives a later edit
-            "final_at=CASE WHEN excluded.final=1 THEN excluded.final_at ELSE mcq_answers.final_at END",
-            (session_id, problem_id, question_id, json.dumps(selected), revision, final,
-             ts, ts, ts if final else None),
+            "selected=excluded.selected, revision=excluded.revision, "
+            "updated_at=excluded.updated_at",
+            (session_id, problem_id, question_id, json.dumps(selected), revision, ts, ts),
         )
         con.execute(
             "INSERT INTO mcq_answer_events (session_id, problem_id, question_id, revision, "
-            "action, selected, previous, ts) VALUES (?,?,?,?,?,?,?,?)",
-            (session_id, problem_id, question_id, revision, action,
+            "selected, previous, ts) VALUES (?,?,?,?,?,?,?)",
+            (session_id, problem_id, question_id, revision,
              json.dumps(selected), json.dumps(prev_sel), ts),
         )
         con.commit()
     finally:
         con.close()
 
-    record_event(session_id, actor, _MCQ_EVENT[action],
+    record_event(session_id, actor, "mcq_answer_changed",
                  {"problem_id": problem_id, "question_id": question_id,
                   "selected": selected, "previous": prev_sel, "revision": revision})
     return get_answer(session_id, problem_id, question_id)

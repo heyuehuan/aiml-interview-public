@@ -1,8 +1,8 @@
 """Tests for multiple-choice answer capture.
 
 Two halves: the structural detection of option runs in a statement (registry), and the
-recording of what the candidate selected — every change, with timestamps, plus the final
-answer (model + events.jsonl).
+recording of what the candidate selected — every change, with timestamps (model +
+events.jsonl). There is no submit step; the latest selection is the answer.
 """
 import json
 import os
@@ -183,7 +183,7 @@ def test_multiple_options_can_be_selected():
     a = model.save_answer(SID, PID, "Q1", ["C", "A"], allowed=ALLOWED)
     # normalised to the statement's own order, so "A,C" and "C,A" compare equal
     assert a["selected"] == ["A", "C"]
-    assert a["final"] is False and a["revision"] == 1
+    assert a["revision"] == 1
 
 
 def test_invented_options_are_dropped():
@@ -199,7 +199,6 @@ def test_every_change_is_recorded_with_a_timestamp():
     trail = model.answer_trail(SID, PID, "Q1")
     assert [t["selected"] for t in trail] == [["A"], ["A", "B"], ["B"]]
     assert [t["previous"] for t in trail] == [[], ["A"], ["A", "B"]]
-    assert [t["action"] for t in trail] == ["change", "change", "change"]
     assert [t["revision"] for t in trail] == [1, 2, 3]
     assert all(t["ts"] for t in trail), "every entry carries a timestamp"
 
@@ -218,30 +217,24 @@ def test_no_op_saves_do_not_pad_the_trail():
     assert len(model.answer_trail(SID, PID, "Q1")) == 1
 
 
-def test_final_answer_is_recorded_and_editing_reopens_it():
+def test_the_latest_selection_is_the_answer():
+    """There is no submit step: whatever is ticked last is what they answered."""
     model.save_answer(SID, PID, "Q1", ["A"], allowed=ALLOWED)
-    final = model.save_answer(SID, PID, "Q1", ["A", "B"], allowed=ALLOWED, submit=True)
-    assert final["final"] is True and final["final_at"]
-    submitted_at = final["final_at"]
+    model.save_answer(SID, PID, "Q1", ["A", "B"], allowed=ALLOWED)
+    latest = model.save_answer(SID, PID, "Q1", ["C"], allowed=ALLOWED)
+    assert latest["selected"] == ["C"] and latest["revision"] == 3
+    assert model.get_answer(SID, PID, "Q1")["selected"] == ["C"]
+    assert {e["event"] for e in _events()} == {"mcq_answer_changed"}
 
-    # changing their mind afterwards re-opens the question rather than silently
-    # replacing what they said was final
-    reopened = model.save_answer(SID, PID, "Q1", ["C"], allowed=ALLOWED)
-    assert reopened["final"] is False
-    assert reopened["final_at"] == submitted_at, "when they committed is still recoverable"
 
-    actions = [t["action"] for t in model.answer_trail(SID, PID, "Q1")]
-    assert actions == ["change", "submit", "reopen"]
-    assert [e["event"] for e in _events()][-3:] == [
-        "mcq_answer_changed", "mcq_answer_submitted", "mcq_answer_reopened"]
-
-    resubmitted = model.save_answer(SID, PID, "Q1", ["C"], allowed=ALLOWED, submit=True)
-    assert resubmitted["final"] is True and resubmitted["selected"] == ["C"]
-    # timestamps are second-resolution (platform convention), so re-submitting inside the
-    # same second leaves final_at equal — `revision` is what orders the trail.
-    assert resubmitted["final_at"] >= submitted_at
-    assert resubmitted["revision"] == 4
-    assert [t["action"] for t in model.answer_trail(SID, PID, "Q1")][-1] == "submit"
+def test_clearing_every_box_is_a_recorded_answer():
+    """Un-ticking everything is a deliberate answer, and distinct from never touching
+    the question — the trail keeps what was there before."""
+    model.save_answer(SID, PID, "Q1", ["A"], allowed=ALLOWED)
+    cleared = model.save_answer(SID, PID, "Q1", [], allowed=ALLOWED)
+    assert cleared["selected"] == [] and cleared["revision"] == 2
+    assert model.answer_trail(SID, PID, "Q1")[-1]["previous"] == ["A"]
+    assert model.get_answer(SID, PID, "Q2") is None  # never touched
 
 
 def test_overlapping_saves_get_distinct_revisions():
@@ -276,21 +269,21 @@ def test_page_renders_saved_state_as_checked_inputs(statement):
     blocks = registry.released_blocks(PID, 1)
     for b in blocks:
         if b["kind"] == "mcq":
-            b["answer"] = {"selected": ["B"], "final": False}
+            b["answer"] = {"selected": ["B"]}
     html = views.problems_page({"candidate_name": "A", "workspace_user": "a"},
                                [{"id": PID, "title": "Quiz", "summary": "",
                                  "released": 1, "blocks": blocks}])
     assert 'type="checkbox" value="B" checked' in html
     assert 'type="checkbox" value="A">' in html, "unselected options stay unchecked"
-    assert 'data-qid="Q1"' in html and "Submit answer" in html
+    assert 'data-qid="Q1"' in html
 
 
-def test_submitted_question_says_so(statement):
+def test_no_submit_button_or_hint(statement):
+    """Ticking a box is the answer — nothing for the candidate to press afterwards."""
     blocks = registry.released_blocks(PID, 1)
-    for b in blocks:
-        if b["kind"] == "mcq":
-            b["answer"] = {"selected": ["A"], "final": True}
     html = views.problems_page({"candidate_name": "A", "workspace_user": "a"},
                                [{"id": PID, "title": "Quiz", "summary": "",
                                  "released": 1, "blocks": blocks}])
-    assert "Submitted" in html
+    assert "mcq-submit" not in html
+    assert "Submit answer" not in html
+    assert "Select all that apply" not in html
