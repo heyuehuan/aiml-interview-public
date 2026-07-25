@@ -1,6 +1,7 @@
 """The handout's wording lives in config/handout.md — check the loader honours it and
 that session values reach the paper escaped."""
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -65,6 +66,25 @@ def test_unknown_icon_leaves_no_stray_braces(tmp_path, monkeypatch):
     body = handout.content(VALUES)["body_html"]
     assert "{icon" not in body
     assert body.count('<li class="ico">') == 2  # bullet is replaced either way
+
+
+def test_icon_item_text_is_one_flex_child(tmp_path, monkeypatch):
+    """`li.ico` is a flex row with `gap`, so every direct child gets a gap beside it and
+    text runs stop wrapping as one paragraph. All the text must sit in a single <span>
+    — a bullet with two bold phrases used to render as five flex items with four blanks
+    scattered through the sentence."""
+    _with_file(tmp_path, "## S\n\n- {icon:gemini} **Gemini** — Chat playground **and a\n"
+                         "  key already provided** — call it from your own code.\n",
+               monkeypatch)
+    body = handout.content(VALUES)["body_html"]
+    item = re.search(r'<li class="ico">(.*?)</li>', body, re.S).group(1)
+    without_icon = re.sub(r"<svg.*?</svg>", "", item, flags=re.S).strip()
+    assert without_icon.startswith("<span>") and without_icon.endswith("</span>")
+    # both bold phrases, and every word between them, live inside that one span
+    inner = without_icon[len("<span>"):-len("</span>")]
+    assert "</span>" not in inner and "<span>" not in inner
+    assert inner.count("<strong>") == 2
+    assert "Chat playground" in inner and "call it from your own code." in inner
 
 
 def test_missing_file_still_prints_the_essentials(tmp_path, monkeypatch):

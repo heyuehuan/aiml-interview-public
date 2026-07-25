@@ -72,8 +72,11 @@ _FRONT_DELIM = "---"
 _KEY = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$")
 _SECTION = re.compile(r"^##\s", re.MULTILINE)
 _PLACEHOLDER = re.compile(r"\{(icon:[a-z0-9_]+|url|access_code|candidate_name|terms)\}")
-# An icon opening a list item stands in for the bullet (see .content li.ico).
-_ICON_LI = re.compile(r"<li>\s*(?=\{icon:[a-z0-9_]+\})")
+# An icon opening a list item stands in for the bullet (see .content li.ico). The rest of
+# the item is wrapped in a <span> so the flex row has exactly two children: icon + text.
+# Without the wrapper every <strong> is its own flex item, so `gap` opens a blank beside
+# each one and the text runs can no longer wrap as a single paragraph.
+_ICON_LI = re.compile(r"<li>\s*(\{icon:[a-z0-9_]+\})\s*(.*?)</li>", re.S)
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -129,7 +132,8 @@ def _substitute(rendered: str, values: dict) -> str:
             return f'<span class="terms">{html.escape(values.get("terms", ""))}</span>'
         return html.escape(str(values.get(name, "")))
 
-    return _PLACEHOLDER.sub(repl, _ICON_LI.sub('<li class="ico">', rendered))
+    wrapped = _ICON_LI.sub(r'<li class="ico">\1<span>\2</span></li>', rendered)
+    return _PLACEHOLDER.sub(repl, wrapped)
 
 
 def content(values: dict) -> dict:
