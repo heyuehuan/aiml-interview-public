@@ -1,6 +1,7 @@
 """Uploaded AI reviews: matching a file to a session, and what the
 printed page must always say."""
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -138,6 +139,21 @@ def test_scope_key_narrows_the_sentence_but_keeps_the_block(tmp_path, monkeypatc
     html = views_admin.session_review(SESSION, reviews.content("sess-1", "Ada Lovelace"))
     assert "two notebooks only" in html
     assert "Scope and limits" in html and "For reference only" in html
+
+
+def test_running_footer_never_toggles_display(tmp_path, monkeypatch):
+    """Regression: `.runfoot` used to be `display: none` on screen and
+    `display: block; position: fixed` in print. Building that fixed layer when the print
+    stylesheet activates and tearing it down when it leaves paints the page white in
+    Chrome until something forces a repaint — the report went blank after printing. The
+    layer must exist at all times; only `visibility` may change."""
+    _with_dir(tmp_path, {"a.md": FILE}, monkeypatch)
+    html = views_admin.session_review(SESSION, reviews.content("sess-1", "Ada Lovelace"))
+    rules = re.findall(r"\.runfoot\s*\{[^}]*\}", html)
+    assert rules, "the running footer lost its styling"
+    assert not any("display" in r for r in rules), "runfoot must not toggle display"
+    assert any("position: fixed" in r for r in rules)     # still repeats on every page
+    assert any("visibility: visible" in r for r in rules)  # ...and still prints
 
 
 def test_page_escapes_frontmatter(tmp_path, monkeypatch):
