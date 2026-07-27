@@ -26,6 +26,10 @@ Format::
     ---
     ## Bottom line
     ...
+
+Provenance and scope are not the uploader's to omit: `views_admin.session_review` always
+prints the AI-generated banner and the Scope and limits block. The `scope` key only
+narrows the sentence naming what was read.
 """
 from __future__ import annotations
 
@@ -52,6 +56,11 @@ DEFAULTS = {
     "confidence": "",
     "window": "",
     "evidence": "",
+    # What this particular review actually read, as a noun phrase: the layout wraps it in
+    # "This analysis read only part of the tracked workspace — {scope}. It did not observe
+    # the session live." It can narrow the claim, never remove the block.
+    "scope": "its machine-readable contents only — snapshot history, notebooks and "
+             "session logs",
     "model": "unspecified model",
     "generated": "",
     "copyright": "© 2026 Technical Interview Platform — confidential hiring material",

@@ -491,6 +491,17 @@ body { margin: 0; background: #f6f8fa; color: #111;
 .ai .model { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700; color: #111; }
 
+/* Scope and limits — the second half of the same disclaimer, kept visually attached to
+   the banner and above the verdict so it cannot be skimmed past. Emitted by the layout,
+   so no uploaded file can drop it. */
+.limits { margin: 6px 0 0; border: 1px solid #d0d7de; border-radius: 8px;
+  padding: 8px 12px; font-size: 8.5pt; line-height: 1.45; color: #24292f; }
+.limits .cap { font-size: 8pt; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: #57606a; margin: 0 0 3px; }
+.limits p { margin: 0 0 3px; }
+.limits p:last-child { margin-bottom: 0; }
+.limits strong { color: #111; }
+
 .verdict { margin: 12px 0 0; border: 2px solid #111; border-radius: 8px; padding: 11px 16px; }
 .verdict .cap { font-size: 8pt; font-weight: 700; letter-spacing: .09em;
   text-transform: uppercase; color: #57606a; margin: 0 0 3px; }
@@ -550,10 +561,14 @@ def session_review(s, c):
     """Printable AI hiring review for one session. `c` is `reviews.content(...)` — the
     uploaded Markdown plus its frontmatter; this function owns only the frame.
 
-    Every escape hatch is deliberate: the verdict sits above the fold, the model that
-    wrote it is named in the banner and repeated in the running footer, and the session's
-    own timeline facts (window, evidence) print beside the text so a reader can weigh the
-    verdict against how much time the candidate actually had."""
+    Provenance and scope are emitted here rather than left to the file: an
+    uploader can narrow the `scope` sentence but cannot drop the AI-generated banner, the
+    Scope and limits block, or the running footer. Both sit above the verdict, because a
+    reader who skims one block should not be the one who misses the caveat.
+
+    The rest of the ordering is deliberate too: the verdict sits above the fold, and the
+    session's own timeline facts (window, evidence) print beside it so a reader can weigh
+    the verdict against how much time the candidate actually had."""
     def fact(label, value):
         return (f"<dt>{esc(label)}</dt><dd>{esc(value)}</dd>") if value else ""
 
@@ -569,6 +584,7 @@ def session_review(s, c):
     verdict = f'<p class="line">{esc(c["verdict"])}</p>' if c["verdict"] else ""
     rating = c["rating"] or "See review"
     model = esc(c["model"])
+    scope = esc(c["scope"])
     name = esc(c["candidate"] or s["candidate_name"])
     subtitle = name + (f' · {esc(c["session_label"])}' if c["session_label"] else "")
     return f"""<!doctype html><html lang="en"><head>
@@ -594,6 +610,17 @@ def session_review(s, c):
       interviewer's own notes.</span>
   </div>
 
+  <div class="limits">
+    <p class="cap">Scope and limits</p>
+    <p>This analysis read <strong>only part of</strong> the tracked workspace —
+      {scope}. It did not observe the session live.</p>
+    <p>Anything spoken, shown on screen, or reasoned aloud left no trace in the record,
+      and problems that were never released were never assessed. Absence of evidence here
+      is often absence of capture, not absence of ability.</p>
+    <p><strong>For reference only.</strong> Use it to decide what to probe next — not as
+      a decision record, and not as a substitute for the interviewer's own judgement.</p>
+  </div>
+
   <div class="verdict">
     <p class="cap">Recommendation</p>
     <div class="rating">{esc(rating)}</div>
@@ -606,11 +633,11 @@ def session_review(s, c):
 
   <div class="foot">
     <span class="cr">{esc(c['copyright'])}</span>
-    <span class="note">AI generated · {model}</span>
+    <span class="note">AI generated · {model} · reference only</span>
   </div>
 </div>
 <div class="runfoot">AI-generated hiring review · {model} · {name} ·
-  not a human hiring decision</div>
+  partial view of the tracked workspace · reference only, not a human hiring decision</div>
 </body></html>"""
 
 
