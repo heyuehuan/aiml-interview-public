@@ -21,6 +21,7 @@ import html
 import os
 import re
 
+import frontmatter
 import mdrender
 import theme
 import views
@@ -68,8 +69,6 @@ Open the URL above in any browser and enter your access code.
 {terms}
 """
 
-_FRONT_DELIM = "---"
-_KEY = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$")
 _SECTION = re.compile(r"^##\s", re.MULTILINE)
 _PLACEHOLDER = re.compile(r"\{(icon:[a-z0-9_]+|url|access_code|candidate_name|terms)\}")
 # An icon opening a list item stands in for the bullet (see .content li.ico). The rest of
@@ -77,36 +76,6 @@ _PLACEHOLDER = re.compile(r"\{(icon:[a-z0-9_]+|url|access_code|candidate_name|te
 # Without the wrapper every <strong> is its own flex item, so `gap` opens a blank beside
 # each one and the text runs can no longer wrap as a single paragraph.
 _ICON_LI = re.compile(r"<li>\s*(\{icon:[a-z0-9_]+\})\s*(.*?)</li>", re.S)
-
-
-def _parse_frontmatter(text: str) -> tuple[dict, str]:
-    """Split `--- key: value --- body` into (meta, body). No frontmatter is fine."""
-    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    if not lines or lines[0].strip() != _FRONT_DELIM:
-        return {}, text
-    meta: dict[str, str] = {}
-    i, n = 1, len(lines)
-    while i < n and lines[i].strip() != _FRONT_DELIM:
-        line = lines[i]
-        i += 1
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        m = _KEY.match(line)
-        if not m:
-            continue
-        key, value = m.group(1).lower(), m.group(2).strip()
-        if value in ("|", ">"):  # block scalar: take the indented lines that follow
-            fold = value == ">"
-            buf = []
-            while i < n and lines[i].strip() != _FRONT_DELIM and (
-                    not lines[i].strip() or lines[i].startswith((" ", "\t"))):
-                buf.append(lines[i].strip())
-                i += 1
-            value = (" " if fold else "\n").join(buf).strip()
-        elif len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        meta[key] = value
-    return meta, "\n".join(lines[i + 1:])
 
 
 def _load_file() -> tuple[str, str | None]:
@@ -140,7 +109,7 @@ def content(values: dict) -> dict:
     """Everything the handout view needs: the frontmatter slots plus `lead_html` (the
     welcome) and `body_html` (the sections). `values` supplies the placeholders."""
     text, path = _load_file()
-    meta, body = _parse_frontmatter(text)
+    meta, body = frontmatter.parse(text)
     if path is None:
         body = _FALLBACK_MD
         meta = {}

@@ -59,6 +59,8 @@ services:
       PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-https://interview.example.com/}
       # Editable wording for that handout, from the ../config mount below.
       HANDOUT_FILE: /srv/config/handout.md
+      # Uploaded AI hiring reviews — same mount, admin-only surface.
+      REVIEWS_DIR: /srv/config/reviews
       # export/reset scripts (mounted at /srv/scripts below).
       SCRIPTS_DIR: /srv/scripts
       # No insecure default: .env must set this (dev value lives in .env.example).
