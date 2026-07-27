@@ -117,6 +117,29 @@ def test_page_always_declares_ai_authorship_and_model(tmp_path, monkeypatch):
     assert "120 min booked" in html               # time context prints beside the verdict
 
 
+def test_page_always_states_the_scope_limit(tmp_path, monkeypatch):
+    """the Scope and limits block is layout, not prose. A file that says
+    nothing about scope still prints the partial-view caveat and the reference-only
+    framing — an uploader cannot drop them by omission."""
+    bare = "---\nsession_id: sess-1\nmodel: Example model\nrating: No hire\n---\n\nbody\n"
+    _with_dir(tmp_path, {"a.md": bare}, monkeypatch)
+    html = views_admin.session_review(SESSION, reviews.content("sess-1", "Ada Lovelace"))
+    assert "Scope and limits" in html
+    assert "only part of" in html
+    assert "For reference only" in html
+    assert "reference only" in html.split('class="runfoot"')[1]   # and on every page
+    assert "snapshot history, notebooks and session logs" in html  # the default scope
+
+
+def test_scope_key_narrows_the_sentence_but_keeps_the_block(tmp_path, monkeypatch):
+    _with_dir(tmp_path, {"a.md": FILE.replace("model: Example model",
+                                              "scope: two notebooks only\nmodel: Example model")},
+              monkeypatch)
+    html = views_admin.session_review(SESSION, reviews.content("sess-1", "Ada Lovelace"))
+    assert "two notebooks only" in html
+    assert "Scope and limits" in html and "For reference only" in html
+
+
 def test_page_escapes_frontmatter(tmp_path, monkeypatch):
     _with_dir(tmp_path, {"a.md": FILE.replace("rating: Provisional hire",
                                               "rating: <script>x</script>")}, monkeypatch)
@@ -143,3 +166,12 @@ def test_repo_reviews_parse_and_are_marked():
         assert meta.get("model"), f"{r['file']} names no model"
         assert meta.get("rating"), f"{r['file']} states no rating"
         assert meta.get("session_id") or meta.get("candidate"), f"{r['file']} matches nothing"
+
+
+def test_repo_reviews_position_the_candidate_for_a_next_round():
+    """Each shipped review has to leave the reader with a decision to act on — what is
+    good, what to watch, and whether to proceed or probe further in a later round."""
+    for r in reviews.all_reviews():
+        body = r["body"]
+        for heading in ("## Strengths", "## Watch-items", "## Position for the next round"):
+            assert heading in body, f"{r['file']} is missing {heading}"
