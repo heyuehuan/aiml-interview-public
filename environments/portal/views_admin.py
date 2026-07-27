@@ -606,7 +606,7 @@ def session_review(s, c):
   <div class="ai">
     <span class="tag">AI generated</span>
     <span class="txt">Written by <span class="model">{model}</span> from the captured
-      session artifact. Not a human hiring decision — read it as evidence, alongside the
+      session artifact. Not a human hiring decision — read it as reference, alongside the
       interviewer's own notes.</span>
   </div>
 
