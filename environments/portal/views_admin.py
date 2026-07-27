@@ -6,6 +6,7 @@ passes through esc().
 """
 from __future__ import annotations
 
+import json
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -462,13 +463,58 @@ def session_handout(s, url):
 # by executives, so the rules are "the verdict is visible without scrolling" and "every
 # printed page carries the AI-generated mark" (the running footer below).
 _REVIEW_CSS = """
-@page { margin: 15mm 14mm; }
+/* `margin: 0` is what suppresses Chrome's own header/footer — the print date and the
+   source URL are drawn in the @page margin, and a page cannot turn them off any other
+   way. The document's margins therefore live on .page padding instead. `size: Letter`
+   pins the sheet so the paginator below knows how tall a page is. */
+@page { size: Letter; margin: 0; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #f6f8fa; color: #111;
   font: 10.5pt/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
 .sheet { background: #fff; max-width: 190mm; margin: 16px auto; padding: 14mm; }
 .toolbar { max-width: 190mm; margin: 16px auto -8px; display: flex; gap: 8px;
   justify-content: flex-end; }
+
+/* Paginated view: one .page per printed sheet, each with its own numbered footer. Built
+   by the script at the end of the document; until then (and if it fails) .sheet holds
+   the same content as one continuous flow. Height is a hair under Letter's 279.4mm —
+   an exact match rounds up often enough to emit a blank sheet between every page. */
+.page { background: #fff; width: 216mm; height: 278mm; margin: 16px auto;
+  padding: 15mm 15mm 20mm; position: relative; }
+.page-body { height: 100%; }
+.page-foot { position: absolute; left: 15mm; right: 15mm; bottom: 11mm;
+  display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+  border-top: 1px solid #d0d7de; padding-top: 5px; font-size: 8pt; color: #57606a; }
+.page-foot .num { white-space: nowrap; font-weight: 700; color: #111; }
+
+/* Body Markdown from reviews.py, scoped to `.flow` — carried by the source sheet and by
+   every .page-body, so a paragraph styles the same wherever the paginator puts it.
+   `##` in the file arrives as <h3> (mdrender demotes one level); h2/h4 match so any
+   heading depth still reads as a section rule.
+
+   These rules come BEFORE the .head/.ai/.limits/.verdict/.facts blocks below on purpose.
+   Dropping the inner .content wrapper put the header blocks inside .flow too, so e.g.
+   `.flow p` and `.limits p` now both match at equal specificity — and the later rule
+   wins. The component blocks must therefore be the later ones. */
+.flow h2, .flow h3, .flow h4 { font-size: 9pt; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; color: #57606a; margin: 16px 0 6px;
+  padding-bottom: 4px; border-bottom: 1px solid #d0d7de; break-after: avoid;
+  page-break-after: avoid; }
+.flow p { margin: 6px 0; }
+.flow ol, .flow ul { margin: 6px 0; padding-left: 18px; }
+.flow li { margin: 3px 0; }
+.flow strong { color: #111; }
+.flow hr { border: 0; border-top: 1px solid #d0d7de; margin: 14px 0; }
+.flow blockquote { margin: 8px 0; padding: 2px 0 2px 12px;
+  border-left: 3px solid #d0d7de; color: #24292f; }
+.flow code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9pt; }
+.flow table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 9pt;
+  break-inside: avoid; page-break-inside: avoid; }
+.flow th, .flow td { border: 1px solid #d0d7de; padding: 4px 8px;
+  text-align: left; vertical-align: top; }
+.flow th { background: #f6f8fa; font-size: 8.5pt; letter-spacing: .04em;
+  text-transform: uppercase; color: #57606a; }
 .toolbar a, .toolbar button { font: inherit; font-size: 9.5pt; padding: 5px 14px;
   border-radius: 6px; border: 1px solid #d0d7de; background: #fff; color: #111;
   text-decoration: none; cursor: pointer; }
@@ -515,50 +561,33 @@ body { margin: 0; background: #f6f8fa; color: #111;
 .facts dt { font-weight: 700; color: #57606a; }
 .facts dd { margin: 0; }
 
-/* Body Markdown from reviews.py. `##` in the file arrives as <h3> (mdrender demotes one
-   level); h2/h4 match so any heading depth still reads as a section rule. */
-.content { margin-top: 4px; }
-.content h2, .content h3, .content h4 { font-size: 9pt; font-weight: 700;
-  letter-spacing: .09em; text-transform: uppercase; color: #57606a; margin: 16px 0 6px;
-  padding-bottom: 4px; border-bottom: 1px solid #d0d7de; break-after: avoid;
-  page-break-after: avoid; }
-.content p { margin: 6px 0; }
-.content ol, .content ul { margin: 6px 0; padding-left: 18px; }
-.content li { margin: 3px 0; }
-.content strong { color: #111; }
-.content hr { border: 0; border-top: 1px solid #d0d7de; margin: 14px 0; }
-.content blockquote { margin: 8px 0; padding: 2px 0 2px 12px;
-  border-left: 3px solid #d0d7de; color: #24292f; }
-.content code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 9pt; }
-.content table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 9pt;
-  break-inside: avoid; page-break-inside: avoid; }
-.content th, .content td { border: 1px solid #d0d7de; padding: 4px 8px;
-  text-align: left; vertical-align: top; }
-.content th { background: #f6f8fa; font-size: 8.5pt; letter-spacing: .04em;
-  text-transform: uppercase; color: #57606a; }
-
 .foot { margin-top: 18px; border-top: 1px solid #d0d7de; padding-top: 8px;
   display: flex; justify-content: space-between; gap: 12px; font-size: 8.5pt;
   color: #57606a; }
 .foot .cr { white-space: nowrap; }
 .foot .note { font-weight: 700; color: #111; text-align: right; }
 
-/* Running footer: `position: fixed` is what makes Chrome repeat it on every sheet, so a
-   page separated from the stack still says what wrote it.
-
-   It stays fixed on screen too, hidden with `visibility` rather than `display`. Toggling
-   `display: none` -> `block` here made the browser build a fixed compositing layer when
-   the print stylesheet activated and tear it down when it deactivated — and Chrome
-   routinely leaves the page painted white after that teardown until something forces a
-   repaint. Keeping the layer alive the whole time is the fix; `bottom: -10mm` parks it
-   below the viewport, so nothing shows on screen either way. */
+/* Fallback running footer, used only when the paginator did not run — it is removed from
+   the DOM as soon as real .page footers exist. `position: fixed` is what makes Chrome
+   repeat it per sheet; it stays fixed on screen too and hides via `visibility`, because
+   toggling `display: none` -> `block` built a fixed compositing layer when the print
+   stylesheet activated and tore it down on the way out, which leaves Chrome painting the
+   page white until something forces a repaint. `bottom: -10mm` parks it off-screen. */
 .runfoot { position: fixed; bottom: -10mm; left: 0; right: 0; visibility: hidden;
   font-size: 7.5pt; color: #57606a; border-top: .5pt solid #d0d7de; padding-top: 3px; }
+
 @media print {
   body { background: #fff; }
   .toolbar { display: none; }
-  .sheet { margin: 0; padding: 0; max-width: none; }
+  /* Paginated: each .page is exactly one sheet. Width goes to 100% so it cannot exceed
+     the paper by a rounding hair and push a blank sheet out sideways — and so the layout
+     survives someone choosing A4 in the print dialog. :last-child gets `auto` or Chrome
+     emits a trailing blank page for the final break. */
+  .page { margin: 0; width: 100%; page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  /* Unpaginated fallback: @page has no margin now, so the padding has to come from here
+     or the text would run to the paper's edge. */
+  .sheet { margin: 0; max-width: none; padding: 15mm; }
   .runfoot { visibility: visible; }
 }
 """
@@ -594,6 +623,11 @@ def session_review(s, c):
     scope = esc(c["scope"])
     name = esc(c["candidate"] or s["candidate_name"])
     subtitle = name + (f' · {esc(c["session_label"])}' if c["session_label"] else "")
+    # Footer stamped on every built page. Already-escaped values, JSON-encoded so the
+    # script carries it as one safe string literal.
+    foot_json = json.dumps(
+        f'<span>AI generated · {model} · {name} · reference only, not a human hiring '
+        f'decision</span><span class="num"></span>')
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI review — {name}</title>
@@ -603,7 +637,8 @@ def session_review(s, c):
   <a href="/admin/sessions/{esc(s['id'])}">← Back to session</a>
   <button type="button" onclick="window.print()">Print / Save as PDF</button>
 </div>
-<div class="sheet">
+<div id="pages"></div>
+<div id="doc" class="sheet flow">
   <div class="head">
     {theme.BRAND_MARK}
     <div><h1>{esc(c['title'])}</h1>
@@ -636,7 +671,7 @@ def session_review(s, c):
 
   <dl class="facts">{facts}</dl>
 
-  <div class="content">{c['body_html']}</div>
+  {c['body_html']}
 
   <div class="foot">
     <span class="cr">{esc(c['copyright'])}</span>
@@ -646,16 +681,75 @@ def session_review(s, c):
 <div class="runfoot">AI-generated hiring review · {model} · {name} ·
   partial view of the tracked workspace · reference only, not a human hiring decision</div>
 <script>
-// Belt and braces for the same blank-after-print behaviour the .runfoot rules above
-// avoid: leaving the print stylesheet can still drop the page to white until something
-// invalidates the paint. Promoting the sheet for one frame and releasing it forces that
-// repaint, and is invisible when the bug does not occur.
-window.addEventListener('afterprint', function () {{
-  var s = document.querySelector('.sheet');
-  if (!s) return;
-  s.style.transform = 'translateZ(0)';
-  requestAnimationFrame(function () {{ s.style.transform = ''; }});
-}});
+// Lay the document out into real Letter-sized pages, each with its own numbered footer.
+// Chrome supports neither @page margin boxes nor counter(pages), and a position:fixed
+// footer repeats the SAME text on every sheet — so "Page 3 of 5" is only achievable by
+// building the pages ourselves.
+//
+// Everything is wrapped: if any of it throws, #doc is still in the DOM as one continuous
+// flow with its own footer, and the report prints — just without page numbers.
+(function () {{
+  try {{
+    var doc = document.getElementById('doc'),
+        pages = document.getElementById('pages');
+    if (!doc || !pages) return;
+
+    var FOOT = {foot_json};
+
+    function addPage() {{
+      var page = document.createElement('div');
+      page.className = 'page';
+      var body = document.createElement('div');
+      body.className = 'page-body flow';
+      var foot = document.createElement('div');
+      foot.className = 'page-foot';
+      foot.innerHTML = FOOT;
+      page.appendChild(body);
+      page.appendChild(foot);
+      pages.appendChild(page);
+      return body;
+    }}
+
+    // The per-page footer replaces both the single end-of-document footer and the fixed
+    // running footer, so neither should survive into the paginated view.
+    var fallbackFoot = doc.querySelector('.foot');
+    if (fallbackFoot) fallbackFoot.parentNode.removeChild(fallbackFoot);
+
+    var body = addPage(), limit = body.clientHeight;
+    if (!limit) return;                      // no layout yet — keep the flowing document
+
+    function isHeading(el) {{
+      return el && /^H[1-6]$/.test(el.tagName);
+    }}
+
+    // Array.from() over a live HTMLCollection would shrink as nodes move.
+    var nodes = Array.prototype.slice.call(doc.children);
+    for (var i = 0; i < nodes.length; i++) {{
+      body.appendChild(nodes[i]);
+      if (body.scrollHeight > limit && body.children.length > 1) {{
+        // A section heading stranded as the last line of a page reads as a mistake;
+        // carry it over with the block it introduces.
+        var prev = body.children[body.children.length - 2];
+        body.removeChild(nodes[i]);
+        var orphan = isHeading(prev) ? prev : null;
+        if (orphan) body.removeChild(orphan);
+        body = addPage();
+        if (orphan) body.appendChild(orphan);
+        body.appendChild(nodes[i]);
+      }}
+    }}
+
+    doc.parentNode.removeChild(doc);
+    var runfoot = document.querySelector('.runfoot');
+    if (runfoot) runfoot.parentNode.removeChild(runfoot);
+
+    var built = pages.querySelectorAll('.page');
+    for (var p = 0; p < built.length; p++) {{
+      built[p].querySelector('.num').textContent =
+        'Page ' + (p + 1) + ' of ' + built.length;
+    }}
+  }} catch (e) {{ /* leave the flowing document exactly as served */ }}
+}})();
 </script>
 </body></html>"""
 

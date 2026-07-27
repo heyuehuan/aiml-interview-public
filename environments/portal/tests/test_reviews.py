@@ -156,6 +156,46 @@ def test_running_footer_never_toggles_display(tmp_path, monkeypatch):
     assert any("visibility: visible" in r for r in rules)  # ...and still prints
 
 
+def test_paginates_with_page_numbers_and_no_browser_furniture(tmp_path, monkeypatch):
+    """the report numbers its own sheets and suppresses Chrome's print
+    header/footer. `@page { margin: 0 }` is what removes the print date and source URL —
+    they are drawn in that margin — so the document's margins must come from .page
+    padding instead."""
+    _with_dir(tmp_path, {"a.md": FILE}, monkeypatch)
+    html = views_admin.session_review(SESSION, reviews.content("sess-1", "Ada Lovelace"))
+    at_page = re.search(r"@page\s*\{[^}]*\}", html).group(0)
+    assert "margin: 0" in at_page, "browser header/footer would print"
+    assert "size: Letter" in at_page  # the paginator needs a known sheet height
+    assert re.search(r"\.page\s*\{[^}]*padding:", html), "margins must live on .page"
+    assert 'id="pages"' in html and 'id="doc"' in html
+    assert "'Page ' + (p + 1) + ' of ' + built.length" in html
+
+
+def test_unpaginated_fallback_still_prints(tmp_path, monkeypatch):
+    """If the script does not run, the served document must still be a complete,
+    printable report — the source flow keeps its own footer and its own page padding,
+    since @page no longer supplies any."""
+    _with_dir(tmp_path, {"a.md": FILE}, monkeypatch)
+    html = views_admin.session_review(SESSION, reviews.content("sess-1", "Ada Lovelace"))
+    assert '<div id="doc" class="sheet flow">' in html   # content is served, not built
+    assert re.search(r"@media print \{.*?\.sheet \{[^}]*padding:", html, re.S)
+    assert 'class="foot"' in html and "runfoot" in html
+    assert "try {" in html and "catch (e)" in html       # a throw leaves the flow intact
+
+
+def test_markdown_styles_survive_being_moved_onto_a_page(tmp_path, monkeypatch):
+    """The paginator moves body nodes into .page-body, so the Markdown rules are scoped
+    to .flow — carried by both. Those rules must also come BEFORE the component blocks:
+    dropping the .content wrapper made `.flow p` and `.limits p` collide at equal
+    specificity, where source order decides and the component has to win."""
+    _with_dir(tmp_path, {"a.md": FILE}, monkeypatch)
+    html = views_admin.session_review(SESSION, reviews.content("sess-1", "Ada Lovelace"))
+    css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+    assert "'page-body flow'" in html   # the class the paginator puts on each page body
+    assert css.index(".flow p {") < css.index(".limits p {")
+    assert css.index(".flow p {") < css.index(".verdict .line")
+
+
 def test_page_escapes_frontmatter(tmp_path, monkeypatch):
     _with_dir(tmp_path, {"a.md": FILE.replace("rating: Provisional hire",
                                               "rating: <script>x</script>")}, monkeypatch)
