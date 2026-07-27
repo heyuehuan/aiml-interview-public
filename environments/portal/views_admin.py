@@ -281,7 +281,21 @@ def _moderation_panel(sid, s, moderation):
 </div>"""
 
 
-def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None):
+def _review_button(sid, has_review):
+    """Live only when an uploaded review claims this session. Nothing in
+    the app writes reviews — they arrive as Markdown in `config/reviews/`, so with no
+    file the honest control is a disabled button that says where one would come from."""
+    if has_review:
+        return (f'<a class="btn btn-sm" href="/admin/sessions/{sid}/review" target="_blank" '
+                f'rel="noopener" title="Open the uploaded AI review for this session, '
+                f'print-styled for PDF">AI Review</a>')
+    return ('<button class="btn btn-sm" type="button" disabled '
+            'title="No review has been uploaded for this session — add a Markdown file '
+            'to config/reviews/ naming this session id or candidate.">AI Review</button>')
+
+
+def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None,
+                         has_review=False):
     sid = esc(s["id"])
     fields = [
         ("Candidate", s["candidate_name"]),
@@ -298,8 +312,11 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None):
     body = f"""{theme.flash(notice)}
 <div class="box">
   <div class="box-header"><h2>Details</h2>
-    <a class="btn btn-sm" href="/admin/sessions/{sid}/handout" target="_blank" rel="noopener"
-       title="Print the candidate's URL, access code, instructions and terms">Export PDF handout</a>
+    <div class="row">
+      {_review_button(sid, has_review)}
+      <a class="btn btn-sm" href="/admin/sessions/{sid}/handout" target="_blank" rel="noopener"
+         title="Print the candidate's URL, access code, instructions and terms">Export PDF handout</a>
+    </div>
   </div>
   <div class="box-body"><dl class="dl-grid">{dl}</dl></div>
 </div>
@@ -433,6 +450,167 @@ def session_handout(s, url):
   </div>
 </div>
 <script>window.addEventListener('load', function(){{ window.print(); }});</script>
+</body></html>"""
+
+
+# --- AI hiring review (print → PDF) -----------------------------------------
+# The text lives in config/reviews/<file>.md; reviews.py reads it per
+# request. Only the frame is here: the AI-generated banner, the verdict block, and the
+# page furniture.
+#
+# Standalone like the handout — black-on-white, print-first — but multi-page: it is read
+# by executives, so the rules are "the verdict is visible without scrolling" and "every
+# printed page carries the AI-generated mark" (the running footer below).
+_REVIEW_CSS = """
+@page { margin: 15mm 14mm; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f6f8fa; color: #111;
+  font: 10.5pt/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.sheet { background: #fff; max-width: 190mm; margin: 16px auto; padding: 14mm; }
+.toolbar { max-width: 190mm; margin: 16px auto -8px; display: flex; gap: 8px;
+  justify-content: flex-end; }
+.toolbar a, .toolbar button { font: inherit; font-size: 9.5pt; padding: 5px 14px;
+  border-radius: 6px; border: 1px solid #d0d7de; background: #fff; color: #111;
+  text-decoration: none; cursor: pointer; }
+.toolbar button { background: #1f883d; border-color: #1a7f37; color: #fff; }
+
+.head { display: flex; align-items: center; gap: 10px;
+  border-bottom: 2px solid #111; padding-bottom: 9px; }
+.head svg { width: 30px; height: 30px; color: #111; }
+.head h1 { font-size: 15pt; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+.head .sub { margin: 1px 0 0; font-size: 9pt; color: #57606a; }
+
+/* The provenance mark. Deliberately the first thing on the page and impossible to read
+   as decoration: this document is machine-written and must never pass as a sign-off. */
+.ai { margin: 12px 0 0; border: 1.5px solid #111; border-radius: 8px;
+  padding: 8px 12px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ai .tag { font-size: 8pt; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; background: #111; color: #fff; padding: 3px 8px;
+  border-radius: 4px; white-space: nowrap; }
+.ai .txt { font-size: 9pt; color: #24292f; flex: 1; min-width: 12rem; }
+.ai .model { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700; color: #111; }
+
+.verdict { margin: 12px 0 0; border: 2px solid #111; border-radius: 8px; padding: 11px 16px; }
+.verdict .cap { font-size: 8pt; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: #57606a; margin: 0 0 3px; }
+.verdict .rating { font-size: 19pt; font-weight: 700; line-height: 1.15;
+  letter-spacing: -.01em; }
+.verdict .line { margin: 5px 0 0; font-size: 10pt; }
+.verdict .conf { margin: 3px 0 0; font-size: 9pt; color: #57606a; }
+
+.facts { margin: 12px 0 0; display: grid; grid-template-columns: max-content 1fr;
+  gap: 3px 14px; font-size: 9pt; }
+.facts dt { font-weight: 700; color: #57606a; }
+.facts dd { margin: 0; }
+
+/* Body Markdown from reviews.py. `##` in the file arrives as <h3> (mdrender demotes one
+   level); h2/h4 match so any heading depth still reads as a section rule. */
+.content { margin-top: 4px; }
+.content h2, .content h3, .content h4 { font-size: 9pt; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; color: #57606a; margin: 16px 0 6px;
+  padding-bottom: 4px; border-bottom: 1px solid #d0d7de; break-after: avoid;
+  page-break-after: avoid; }
+.content p { margin: 6px 0; }
+.content ol, .content ul { margin: 6px 0; padding-left: 18px; }
+.content li { margin: 3px 0; }
+.content strong { color: #111; }
+.content hr { border: 0; border-top: 1px solid #d0d7de; margin: 14px 0; }
+.content blockquote { margin: 8px 0; padding: 2px 0 2px 12px;
+  border-left: 3px solid #d0d7de; color: #24292f; }
+.content code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9pt; }
+.content table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 9pt;
+  break-inside: avoid; page-break-inside: avoid; }
+.content th, .content td { border: 1px solid #d0d7de; padding: 4px 8px;
+  text-align: left; vertical-align: top; }
+.content th { background: #f6f8fa; font-size: 8.5pt; letter-spacing: .04em;
+  text-transform: uppercase; color: #57606a; }
+
+.foot { margin-top: 18px; border-top: 1px solid #d0d7de; padding-top: 8px;
+  display: flex; justify-content: space-between; gap: 12px; font-size: 8.5pt;
+  color: #57606a; }
+.foot .cr { white-space: nowrap; }
+.foot .note { font-weight: 700; color: #111; text-align: right; }
+
+/* Running footer: repeats the provenance on every sheet that comes off the printer, so
+   a page separated from the stack still says what wrote it. */
+.runfoot { display: none; }
+@media print {
+  body { background: #fff; }
+  .toolbar { display: none; }
+  .sheet { margin: 0; padding: 0; max-width: none; }
+  .runfoot { display: block; position: fixed; bottom: -10mm; left: 0; right: 0;
+    font-size: 7.5pt; color: #57606a; border-top: .5pt solid #d0d7de; padding-top: 3px; }
+}
+"""
+
+
+def session_review(s, c):
+    """Printable AI hiring review for one session. `c` is `reviews.content(...)` — the
+    uploaded Markdown plus its frontmatter; this function owns only the frame.
+
+    Every escape hatch is deliberate: the verdict sits above the fold, the model that
+    wrote it is named in the banner and repeated in the running footer, and the session's
+    own timeline facts (window, evidence) print beside the text so a reader can weigh the
+    verdict against how much time the candidate actually had."""
+    def fact(label, value):
+        return (f"<dt>{esc(label)}</dt><dd>{esc(value)}</dd>") if value else ""
+
+    facts = "".join([
+        fact("Candidate", c["candidate"] or s["candidate_name"]),
+        fact("Session", c["session_label"]),
+        fact("Working window", c["window"]),
+        fact("Evidence", c["evidence"]),
+        fact("Generated", c["generated"]),
+    ])
+    conf = (f'<p class="conf">Confidence: {esc(c["confidence"])}</p>'
+            if c["confidence"] else "")
+    verdict = f'<p class="line">{esc(c["verdict"])}</p>' if c["verdict"] else ""
+    rating = c["rating"] or "See review"
+    model = esc(c["model"])
+    name = esc(c["candidate"] or s["candidate_name"])
+    subtitle = name + (f' · {esc(c["session_label"])}' if c["session_label"] else "")
+    return f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI review — {name}</title>
+<style>{_REVIEW_CSS}</style></head>
+<body>
+<div class="toolbar">
+  <a href="/admin/sessions/{esc(s['id'])}">← Back to session</a>
+  <button type="button" onclick="window.print()">Print / Save as PDF</button>
+</div>
+<div class="sheet">
+  <div class="head">
+    {theme.BRAND_MARK}
+    <div><h1>{esc(c['title'])}</h1>
+      <p class="sub">{subtitle}</p></div>
+  </div>
+
+  <div class="ai">
+    <span class="tag">AI generated</span>
+    <span class="txt">Written by <span class="model">{model}</span> from the captured
+      session artifact. Not a human hiring decision — read it as evidence, alongside the
+      interviewer's own notes.</span>
+  </div>
+
+  <div class="verdict">
+    <p class="cap">Recommendation</p>
+    <div class="rating">{esc(rating)}</div>
+    {verdict}{conf}
+  </div>
+
+  <dl class="facts">{facts}</dl>
+
+  <div class="content">{c['body_html']}</div>
+
+  <div class="foot">
+    <span class="cr">{esc(c['copyright'])}</span>
+    <span class="note">AI generated · {model}</span>
+  </div>
+</div>
+<div class="runfoot">AI-generated hiring review · {model} · {name} ·
+  not a human hiring decision</div>
 </body></html>"""
 
 

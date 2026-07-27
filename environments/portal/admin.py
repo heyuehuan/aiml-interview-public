@@ -15,6 +15,7 @@ import db
 import integrations
 import model
 import registry
+import reviews
 import views_admin as views
 from server import Response, Router, serve
 
@@ -236,7 +237,8 @@ def detail(req, sid):
         }
     return Response.html(views.admin_session_detail(
         who, s, moderation=_moderation_state(s), notice=req.query.get("notice"),
-        reactivate=reactivate))
+        reactivate=reactivate,
+        has_review=reviews.exists(sid, s["candidate_name"])))
 
 
 @router.route("GET", "/admin/sessions/<sid>/handout")
@@ -253,6 +255,29 @@ def handout(req, sid):
     if not s:
         return Response.not_found()
     return Response.html(views.session_handout(s, PUBLIC_URL))
+
+
+# --- AI hiring review (print → PDF) -----------------------------------------
+@router.route("GET", "/admin/sessions/<sid>/review")
+def review(req, sid):
+    """The uploaded AI review for this session, print-styled so the browser's "Save as
+    PDF" produces the executive-facing document. Nothing is generated here — the text is
+    a Markdown file in `config/reviews/`, matched to the session by id or
+    candidate name. Admin-only; reviews are never candidate-reachable."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    c = reviews.content(sid, s["candidate_name"])
+    if c is None:
+        # The button is disabled without a file, so this is a hand-typed URL or a review
+        # deleted between page load and click — say which, rather than a bare 404.
+        return Response.text("no review has been uploaded for this session", status=404)
+    return Response.html(views.session_review(s, c))
 
 
 # --- LLM transcript viewer --------------------------------------------------
