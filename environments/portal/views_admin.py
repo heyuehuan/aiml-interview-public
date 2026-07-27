@@ -544,15 +544,22 @@ body { margin: 0; background: #f6f8fa; color: #111;
 .foot .cr { white-space: nowrap; }
 .foot .note { font-weight: 700; color: #111; text-align: right; }
 
-/* Running footer: repeats the provenance on every sheet that comes off the printer, so
-   a page separated from the stack still says what wrote it. */
-.runfoot { display: none; }
+/* Running footer: `position: fixed` is what makes Chrome repeat it on every sheet, so a
+   page separated from the stack still says what wrote it.
+
+   It stays fixed on screen too, hidden with `visibility` rather than `display`. Toggling
+   `display: none` -> `block` here made the browser build a fixed compositing layer when
+   the print stylesheet activated and tear it down when it deactivated — and Chrome
+   routinely leaves the page painted white after that teardown until something forces a
+   repaint. Keeping the layer alive the whole time is the fix; `bottom: -10mm` parks it
+   below the viewport, so nothing shows on screen either way. */
+.runfoot { position: fixed; bottom: -10mm; left: 0; right: 0; visibility: hidden;
+  font-size: 7.5pt; color: #57606a; border-top: .5pt solid #d0d7de; padding-top: 3px; }
 @media print {
   body { background: #fff; }
   .toolbar { display: none; }
   .sheet { margin: 0; padding: 0; max-width: none; }
-  .runfoot { display: block; position: fixed; bottom: -10mm; left: 0; right: 0;
-    font-size: 7.5pt; color: #57606a; border-top: .5pt solid #d0d7de; padding-top: 3px; }
+  .runfoot { visibility: visible; }
 }
 """
 
@@ -638,6 +645,18 @@ def session_review(s, c):
 </div>
 <div class="runfoot">AI-generated hiring review · {model} · {name} ·
   partial view of the tracked workspace · reference only, not a human hiring decision</div>
+<script>
+// Belt and braces for the same blank-after-print behaviour the .runfoot rules above
+// avoid: leaving the print stylesheet can still drop the page to white until something
+// invalidates the paint. Promoting the sheet for one frame and releasing it forces that
+// repaint, and is invisible when the bug does not occur.
+window.addEventListener('afterprint', function () {{
+  var s = document.querySelector('.sheet');
+  if (!s) return;
+  s.style.transform = 'translateZ(0)';
+  requestAnimationFrame(function () {{ s.style.transform = ''; }});
+}});
+</script>
 </body></html>"""
 
 
