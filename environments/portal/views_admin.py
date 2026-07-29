@@ -1026,9 +1026,16 @@ def settings_page(who, notice=None, error=None):
 
 
 # --- multiple-choice answer sheet ----------------
-def _answer_status(a):
+def _answer_status(a, captured=True):
     """Where a question stands. There is no submit step, so this is binary — answered or
-    not — and 'answered' includes deliberately clearing every box."""
+    not — and 'answered' includes deliberately clearing every box. For a session that
+    ended before answer capture existed, an absent row means the platform *could not*
+    record — rendered as its own state, never as "Not answered"."""
+    if not a and not captured:
+        return ('<span class="label st-reset" title="This session ended before answer '
+                'capture was enabled. The screen was display-only — no '
+                'selection could be recorded, whatever the candidate answered.">'
+                'Not captured</span>')
     if not a:
         return '<span class="label">Not answered</span>'
     return '<span class="label st-active">Answered</span>'
@@ -1051,7 +1058,33 @@ def _answer_trail(trail):
 </details>"""
 
 
-def _answer_question(q):
+def _answer_notes(sid, pid, q):
+    """Interviewer testimony for one question: the recorded notes (author + timestamp,
+    labelled so they can never pass as a captured artifact) and the append form. There
+    is deliberately no edit or delete — the audit rule."""
+    rows = "".join(
+        f'<div style="margin-top:8px;padding:8px 10px;border:1px solid var(--border,#30363d);border-radius:6px">'
+        f'<span class="label st-exported">Interviewer testimony</span> '
+        f'<span class="muted small">{esc(n["author"])} · {_fmt_ts(n["ts"])} · '
+        f'not a captured artifact</span>'
+        f'<div style="margin-top:4px;white-space:pre-wrap">{esc(n["note"])}</div></div>'
+        for n in q.get("notes") or [])
+    form = f"""<details style="margin-top:10px">
+  <summary class="muted small">Add interviewer note (testimony)</summary>
+  <form method="post" action="/admin/sessions/{esc(sid)}/answers/note" style="margin-top:8px">
+    <input type="hidden" name="problem_id" value="{esc(pid)}">
+    <input type="hidden" name="question_id" value="{esc(q["qid"])}">
+    <textarea name="note" rows="3" placeholder="e.g. answered aloud: C, explained the trade-off — recorded from interviewer memory/notes"></textarea>
+    <p class="muted small" style="margin:4px 0 8px">Recorded append-only with your
+      username and timestamp, and labelled <b>testimony</b> — for results the platform
+      could not capture or reasoning given aloud. It never reads as a captured answer.</p>
+    <button class="btn btn-sm" type="submit">Record note</button>
+  </form>
+</details>"""
+    return rows + form
+
+
+def _answer_question(sid, pid, q, captured=True):
     a = q.get("answer")
     chosen = set((a or {}).get("selected") or [])
     opts = "".join(
@@ -1060,14 +1093,14 @@ def _answer_question(q):
         f'{" ←" if o["key"] in chosen else ""}</li>'
         for o in q["options"]
     )
-    picked = ", ".join(sorted(chosen)) or "—"
+    picked = ", ".join(sorted(chosen)) or ("not captured" if not captured and not a else "—")
     when = _fmt_ts((a or {}).get("updated_at")) if a else "—"
     revs = (a or {}).get("revision") or 0
     return f"""<div class="box" style="margin-bottom:12px">
   <div class="box-header">
     <div><h2>{esc(q["title"])}</h2>
       <p class="muted small mono" style="margin:2px 0 0">{esc(q["qid"])}</p></div>
-    {_answer_status(a)}
+    {_answer_status(a, captured)}
   </div>
   <div class="box-body">
     <p style="margin:0 0 8px"><span class="muted small">Selected</span>
@@ -1075,25 +1108,40 @@ def _answer_question(q):
       <span class="muted small">· {revs} change{"" if revs == 1 else "s"} · last {when}</span></p>
     <ul style="margin:0;padding-left:20px;line-height:1.6">{opts}</ul>
     {_answer_trail(q["trail"])}
+    {_answer_notes(sid, pid, q)}
   </div>
 </div>"""
 
 
-def admin_answers_page(who, s, problems):
+_NOT_CAPTURED_BANNER = """<div class="flash flash-err" style="margin-bottom:16px">
+This session ended before answer capture was enabled, when these screens were
+display-only. <b>Empty cells below mean the platform could not record — not that the
+candidate answered nothing.</b> A result known to the interviewer can be recorded on the
+question as testimony.</div>"""
+
+
+def admin_answers_page(who, s, problems, captured=True, notice=None, error=None):
     """The interviewer's answer sheet. Shows what was selected and when it changed —
-    never a rubric key, which this service does not read."""
+    never a rubric key, which this service does not read. ``captured=False`` marks a
+    session that predates answer capture: absence renders as "Not captured" and a
+    banner says why."""
+    sid = s["id"]
+    body = theme.flash(notice) + theme.flash(error, "err")
+    if not captured:
+        body += _NOT_CAPTURED_BANNER
     if not problems:
-        body = ('<div class="box"><div class="blankslate">'
-                'None of this session\'s problems have multiple-choice questions.'
-                '</div></div>')
+        body += ('<div class="box"><div class="blankslate">'
+                 'None of this session\'s problems have multiple-choice questions.'
+                 '</div></div>')
     else:
-        body = ""
         for p in problems:
             answered = sum(1 for q in p["questions"] if q.get("answer"))
+            counts = (f"{answered} of {len(p['questions'])} answered" if captured
+                      else "recorded answers unavailable — predates capture")
             body += (f'<h2 class="page-title" style="font-size:16px;margin:16px 0 8px">'
-                     f'{esc(p["id"])} <span class="muted small">— {answered} of '
-                     f'{len(p["questions"])} answered</span></h2>')
-            body += "".join(_answer_question(q) for q in p["questions"])
+                     f'{esc(p["id"])} <span class="muted small">— {counts}</span></h2>')
+            body += "".join(_answer_question(sid, p["id"], q, captured)
+                            for q in p["questions"])
     return _detail_page("Answers", body, who, s, "answers")
 
 

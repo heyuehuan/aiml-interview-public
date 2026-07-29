@@ -571,7 +571,9 @@ def reactivate(session_id, actor="admin", total_minutes=None):
             f"reactivating another (one candidate at a time)")
 
     left = minutes_left(s)
-    extra_sql, extra_params = "closed_at=NULL", ()
+    # activated_at is refreshed: the workspace volume becomes this session's again at
+    # this moment, and unexported_workspace_owner() keys ownership off activated_at.
+    extra_sql, extra_params = "closed_at=NULL, activated_at=?", (now_iso(),)
     detail = {"policy": "preserve", "minutes_left": left}
     if left is not None and left < REACTIVATE_MIN_MINUTES:
         if total_minutes is None:
@@ -582,8 +584,8 @@ def reactivate(session_id, actor="admin", total_minutes=None):
         if total < REACTIVATE_MIN_MINUTES:
             raise ValueError(f"the new total must be at least {REACTIVATE_MIN_MINUTES} minutes")
         ends = now() + timedelta(minutes=total)
-        extra_sql = "closed_at=NULL, ends_at=?"
-        extra_params = (ends.isoformat(timespec="seconds"),)
+        extra_sql = "closed_at=NULL, activated_at=?, ends_at=?"
+        extra_params = (now_iso(), ends.isoformat(timespec="seconds"))
         detail = {"policy": "reset", "minutes_left": left, "new_total": total,
                   "ends_at": ends.isoformat(timespec="seconds")}
     return _transition(session_id, "active", actor, extra_sql=extra_sql,
@@ -769,6 +771,24 @@ def is_workspace_authorized(session_id):
 
 
 # --- multiple-choice answers ---------------------
+# Instances upgraded from a build without answer capture set MCQ_CAPTURE_SINCE (ISO-8601
+# UTC) to the moment capture went live. Screens shown before it were display-only — no
+# mechanism existed to record a selection — so for a session that ended earlier, an
+# absent answer row means *the platform could not capture*, never "answered nothing".
+# Rendering must keep that distinction: an empty cell read as a zero is adverse to the
+# candidate and wrong. Unset (the default) means every session post-dates capture.
+MCQ_CAPTURE_SINCE = os.environ.get("MCQ_CAPTURE_SINCE", "")
+
+
+def mcq_capture_available(session):
+    """False when this session ended before answer capture existed. Timestamps are
+    ISO-8601 UTC strings of one format, so lexicographic comparison is chronological;
+    a session still live today trivially post-dates the cutoff."""
+    ref = (session.get("closed_at") or session.get("ends_at")
+           or session.get("activated_at") or session.get("created_at") or "")
+    return ref >= MCQ_CAPTURE_SINCE
+
+
 def _row_to_answer(row):
     d = dict(row)
     d["selected"] = json.loads(d.get("selected") or "[]")
@@ -894,6 +914,92 @@ def save_answer(session_id, problem_id, question_id, selected, *, allowed,
                  {"problem_id": problem_id, "question_id": question_id,
                   "selected": selected, "previous": prev_sel, "revision": revision})
     return get_answer(session_id, problem_id, question_id)
+
+
+# --- interviewer testimony notes --------
+MCQ_NOTE_MAX = 4000
+
+
+def add_mcq_note(session_id, problem_id, question_id, note, author):
+    """Record an interviewer-supplied result or observation for one question —
+    **testimony, not artifact** (e.g. a result from a screen the platform could not
+    capture, or reasoning the candidate gave aloud). Append-only: there is no edit or
+    delete, matching the audit rule. The full text also lands in events.jsonl so the
+    export bundle carries it."""
+    note = (note or "").strip()
+    if not note:
+        raise ValueError("the note is empty")
+    note = note[:MCQ_NOTE_MAX]
+    ts = now_iso()
+    con = db.connect()
+    try:
+        con.execute(
+            "INSERT INTO mcq_notes (session_id, problem_id, question_id, note, author, ts) "
+            "VALUES (?,?,?,?,?,?)",
+            (session_id, problem_id, question_id, note, author, ts),
+        )
+        con.commit()
+    finally:
+        con.close()
+    record_event(session_id, author, "mcq_note_added",
+                 {"problem_id": problem_id, "question_id": question_id, "note": note})
+
+
+def mcq_notes(session_id, problem_id=None, question_id=None):
+    """Testimony notes, oldest first."""
+    sql = "SELECT * FROM mcq_notes WHERE session_id=?"
+    args = [session_id]
+    if problem_id:
+        sql += " AND problem_id=?"
+        args.append(problem_id)
+    if question_id:
+        sql += " AND question_id=?"
+        args.append(question_id)
+    con = db.connect()
+    try:
+        rows = con.execute(sql + " ORDER BY id", args).fetchall()
+    finally:
+        con.close()
+    return [dict(r) for r in rows]
+
+
+# --- export-before-wipe guard -----------
+def export_bundle_exists(session_id):
+    """True if any export archive exists for this session — the platform-produced
+    record a reviewer can still open after the workspace volume is wiped."""
+    d = os.path.join(DATA_DIR, "sessions", session_id, "export")
+    try:
+        return any(f.endswith((".tar.gz", ".tgz", ".zip")) for f in os.listdir(d))
+    except OSError:
+        return False
+
+
+def unexported_workspace_owner(exclude_id=None):
+    """The session whose work still sits on the shared workspace volume — the most
+    recently *activated* one — if it is `closed` with no export bundle on disk.
+
+    Activation wipes the volume, so activating past such a session destroys the only
+    copy of its record (a session closed without an export has its only copy on that volume). The activate path
+    refuses while this returns a session. `exclude_id` skips the session being acted
+    on itself (reactivation resumes the same record, it doesn't destroy it).
+
+    `rowid` breaks same-second `activated_at` ties (timestamps are seconds-precision);
+    reactivation refreshes `activated_at`, so a resumed session is the owner again."""
+    con = db.connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM sessions WHERE activated_at IS NOT NULL "
+            "ORDER BY activated_at DESC, rowid DESC LIMIT 1").fetchone()
+    finally:
+        con.close()
+    owner = _row_to_session(row)
+    if owner is None:
+        return None
+    if exclude_id and owner["id"] == exclude_id:
+        return None
+    if owner["state"] == "closed" and not export_bundle_exists(owner["id"]):
+        return owner
+    return None
 
 
 # --- Gemini-page chat history ---------------------
