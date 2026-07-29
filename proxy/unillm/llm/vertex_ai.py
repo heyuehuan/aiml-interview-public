@@ -342,14 +342,24 @@ class VertexAIHandler:
                 "delta": delta,
                 "finish_reason": finish_reason,
             })
-      
-        return {
+
+        out = {
             "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": model,
             "choices": choices,
         }
+        # Gemini reports token counts on the final streamed chunk; map them through in
+        # OpenAI shape so the transcript/budget see real usage for streams.
+        usage_metadata = gemini_chunk.get("usageMetadata")
+        if usage_metadata:
+            out["usage"] = {
+                "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
+                "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
+                "total_tokens": usage_metadata.get("totalTokenCount", 0),
+            }
+        return out
   
     async def text_completion(
         self,
@@ -446,6 +456,8 @@ class VertexAIHandler:
                             for c in chat_chunk.get("choices", [])
                         ],
                     }
+                    if chat_chunk.get("usage"):  # final-chunk usage rides through
+                        text_chunk["usage"] = chat_chunk["usage"]
                     yield f"data: {json.dumps(text_chunk)}\n\n"
                 except json.JSONDecodeError:
                     continue

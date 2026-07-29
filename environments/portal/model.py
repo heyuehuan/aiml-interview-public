@@ -331,6 +331,30 @@ def read_transcript(session_id, *, source=None, query=None, limit=500):
     return {"entries": rows, "total": total, "shown": len(rows), "sources": sources}
 
 
+# unillm hard-refuses candidate-driven calls at this × llm_budget_usd;
+#  the admin panel warns from 1.0×. Mirrors proxy/unillm/proxy/budget.py.
+LLM_BUDGET_CUTOFF_FACTOR = 1.2
+
+
+def llm_spend_usd(session_id):
+    """Total USD unillm has priced against this session: the sum of the `cost_usd`
+    stamps in llm_transcript.jsonl. Lines predating cost stamping count as
+    0 — the same rule the proxy's own running total uses, so the two figures agree."""
+    total = 0.0
+    try:
+        with open(transcript_path(session_id), encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    c = json.loads(line).get("cost_usd")
+                    if c is not None:
+                        total += float(c)
+                except (ValueError, TypeError):
+                    continue
+    except OSError:
+        pass
+    return total
+
+
 # --- sessions ---------------------------------------------------------------
 DEFAULT_MODELS = ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
 
@@ -436,6 +460,32 @@ def update_session(session_id, *, candidate_name, workspace_user, access_code,
     finally:
         con.close()
     record_event(session_id, actor, "session_edited")
+    return get_session(session_id)
+
+
+def update_llm_limits(session_id, *, llm_budget_usd, llm_models, actor="admin"):
+    """Change just the LLM budget / model allowlist — allowed while a session is live. unillm reads both per request from the control file, so together with
+    integrations.refresh_control_session_fields this is the interviewer's
+    mid-interview relief valve: grant more budget or models without re-activation.
+    The full edit form stays created-only (the workspace is already provisioned)."""
+    s = get_session(session_id)
+    if s is None:
+        raise ValueError("no such session")
+    if s["state"] not in {"created", "active"}:
+        raise ValueError("LLM limits can only be changed on a created or active session")
+    budget = float(llm_budget_usd)
+    if budget < 0:
+        raise ValueError("LLM budget must be ≥ 0")
+    models = llm_models or DEFAULT_MODELS
+    con = db.connect()
+    try:
+        con.execute("UPDATE sessions SET llm_budget_usd=?, llm_models=? WHERE id=?",
+                    (budget, json.dumps(models), session_id))
+        con.commit()
+    finally:
+        con.close()
+    record_event(session_id, actor, "llm_limits_updated",
+                 {"llm_budget_usd": budget, "llm_models": models})
     return get_session(session_id)
 
 

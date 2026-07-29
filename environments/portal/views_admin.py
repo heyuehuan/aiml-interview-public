@@ -307,9 +307,42 @@ def _comparison_buttons(comparisons):
         for c in comparisons or [])
 
 
+def _llm_limits_form(sid, s):
+    """Mid-interview relief valve: raise the budget / enable models on the
+    live session — unillm reads both from the control file per request, so the change
+    lands on the candidate's next call. Created sessions use the full Edit form."""
+    if s["state"] != "active":
+        return ""
+    ck = lambda m: " checked" if m in s["llm_models"] else ""
+    return f"""
+<div class="box">
+  <div class="box-header"><h2>LLM limits</h2></div>
+  <div class="box-body">
+    <form method="post" action="/admin/sessions/{sid}/llm">
+      <div class="row" style="align-items:flex-end">
+        <div><label for="lbg">Budget (USD)</label>
+          <input type="number" id="lbg" name="llm_budget_usd" value="{s['llm_budget_usd']:g}"
+                 min="0" step="0.5"></div>
+        <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
+          value="gemini-3.5-flash"{ck('gemini-3.5-flash')}> gemini-3.5-flash</label>
+        <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
+          value="gemini-3.1-flash-lite"{ck('gemini-3.1-flash-lite')}> gemini-3.1-flash-lite</label>
+        <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
+          value="gemini-3.1-pro"{ck('gemini-3.1-pro')}> gemini-3.1-pro (opt-in)</label>
+        <button class="btn btn-primary" type="submit">Update limits</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Applies on the candidate's next call — no
+      re-activation. Calls are refused at 120% of budget.</p>
+    </form>
+  </div>
+</div>"""
+
+
 def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None,
-                         has_review=False, comparisons=None):
+                         has_review=False, comparisons=None, llm_spend=None,
+                         llm_cutoff_usd=None):
     sid = esc(s["id"])
+    budget = s["llm_budget_usd"]
     fields = [
         ("Candidate", s["candidate_name"]),
         ("Workspace user", s["workspace_user"]),
@@ -317,12 +350,22 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None,
         ("Problems", ", ".join(s["problem_ids"]) or "—"),
         ("Duration", f"{s['duration_minutes']} min"),
         ("Starts / ends", f"{s['starts_at'] or '—'} → {s['ends_at'] or '—'}"),
-        ("LLM", f"${s['llm_budget_usd']:.2f} · {', '.join(s['llm_models'])}"),
+        ("LLM", f"${budget:.2f} · {', '.join(s['llm_models'])}"),
         ("Internet", "full" if s["internet_access"] else "restricted"),
         ("Terms accepted", s["terms_accepted_at"] or "not yet"),
     ]
+    budget_banner = ""
+    if llm_spend is not None:
+        cutoff = llm_cutoff_usd if llm_cutoff_usd is not None else budget
+        fields.insert(7, ("LLM spend",
+                          f"${llm_spend:.2f} of ${budget:.2f} (cutoff ${cutoff:.2f})"))
+        if llm_spend >= budget:
+            budget_banner = theme.flash(
+                f"LLM spend (${llm_spend:.2f}) has reached the session budget "
+                f"(${budget:.2f}). Candidate calls are refused at ${cutoff:.2f} — "
+                "raise the budget under LLM limits to grant more room.", "err")
     dl = "".join(f'<dt>{esc(k)}</dt><dd class="mono">{esc(v)}</dd>' for k, v in fields)
-    body = f"""{theme.flash(notice)}
+    body = f"""{theme.flash(notice)}{budget_banner}
 <div class="box">
   <div class="box-header"><h2>Details</h2>
     <div class="row">
@@ -338,6 +381,7 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None,
   <div class="box-header"><h2>Actions</h2></div>
   <div class="box-body"><div class="row">{_actions_for(s, sid, reactivate)}</div></div>
 </div>
+{_llm_limits_form(sid, s)}
 {_moderation_panel(sid, s, moderation)}
 {theme.confirm_dialog()}"""
     return _detail_page(f"{s['candidate_name']} · Admin", body, who, s, "overview")

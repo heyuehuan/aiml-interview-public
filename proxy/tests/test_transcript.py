@@ -134,3 +134,51 @@ async def test_streamed_reply_is_teed_into_the_transcript(tx):
     assert len(seen) == 3                       # candidate got every chunk, untouched
     entry = _lines(tx, "sess-1")[0]
     assert entry["response"] == "Hello" and entry["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_streamed_usage_is_captured_and_priced(tx):
+    """Gemini reports usage on the final chunk; the tee must record it and
+    price the call through the supplied callback so streams count against the budget."""
+    _activate(tx, "sess-1")
+
+    async def chunks():
+        yield 'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'
+        yield ('data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+               '"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}\n\n')
+        yield "data: [DONE]\n\n"
+
+    import time
+    priced = []
+
+    def price(usage):
+        priced.append(usage)
+        return 0.0123
+
+    async for _ in tx.tee_stream(chunks(), endpoint="chat.completions", model="m",
+                                 started=time.monotonic(), price=price):
+        pass
+
+    entry = _lines(tx, "sess-1")[0]
+    assert entry["usage"]["total_tokens"] == 30
+    assert entry["cost_usd"] == 0.0123
+    assert priced == [{"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}]
+
+
+@pytest.mark.asyncio
+async def test_pricing_failure_never_loses_the_audit_line(tx):
+    _activate(tx, "sess-1")
+
+    async def chunks():
+        yield 'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'
+
+    def price(usage):
+        raise RuntimeError("pricing exploded")
+
+    import time
+    async for _ in tx.tee_stream(chunks(), endpoint="chat.completions", model="m",
+                                 started=time.monotonic(), price=price):
+        pass
+
+    entry = _lines(tx, "sess-1")[0]
+    assert entry["response"] == "Hi" and "cost_usd" not in entry

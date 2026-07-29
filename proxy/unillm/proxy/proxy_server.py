@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from unillm import __version__
 from unillm._logging import verbose_proxy_logger, set_verbose
-from unillm.proxy import limits, transcript
+from unillm.proxy import budget, limits, transcript
 from unillm.proxy.auth import is_session_key, user_api_key_auth
 from unillm.types import (
     ChatCompletionRequest,
@@ -81,6 +81,9 @@ class ProxyConfig:
                 project=project,
                 location=location,
             )
+
+        # Per-model pricing for the session dollar budget.
+        budget.configure(self.model_list)
 
         verbose_proxy_logger.info(f"Loaded {len(self.model_list)} models from config")
   
@@ -169,12 +172,22 @@ async def list_models(
 ) -> ModelListResponse:
     """
     List available models.
-  
-    Returns a list of models configured in the proxy.
+
+    Returns a list of models configured in the proxy. A session-key caller sees only
+    the models enabled for their session — the same set the completion
+    endpoints will accept from them.
     """
+    session_allowed = None
+    if is_session_key(user_api_key_dict.api_key):
+        policy = budget.session_policy()
+        if policy and isinstance(policy.get("llm_models"), list):
+            session_allowed = set(policy["llm_models"])
+
     models = []
     for model_config in model_list:
         model_name = model_config.get("model_name", "")
+        if session_allowed is not None and model_name not in session_allowed:
+            continue
         models.append(ModelInfo(
             id=model_name,
             object="model",
@@ -283,6 +296,65 @@ def _enforce_rate_limit(user_api_key_dict: UserAPIKeyAuth) -> None:
         )
 
 
+def _enforce_session_policy(model: str, user_api_key_dict: UserAPIKeyAuth,
+                            source: str) -> None:
+    """Per-session model gate + dollar budget.
+
+    Both read the portal's control file per request, so an admin Edit (more models, more
+    budget) or a close/reset is honoured on the next call. No control file / no active
+    session ⇒ nothing to enforce (master-key diagnostics keep working between sessions).
+
+      * Model gate: a session-key call may only name models in the session's
+        `llm_models` list — 400 otherwise. Master-key callers stay config-gated only.
+      * Budget: candidate-driven calls ("api" = workspace session key, "ui" = portal
+        chat on the candidate's behalf) are refused with 429 once the session's spend
+        reaches budget.CUTOFF_FACTOR × `llm_budget_usd`. "admin-test"/"server"
+        master-key calls are never budget-blocked.
+    """
+    policy = budget.session_policy()
+    if policy is None:
+        return
+    if is_session_key(user_api_key_dict.api_key):
+        allowed = policy.get("llm_models")
+        if isinstance(allowed, list) and model not in allowed:
+            verbose_proxy_logger.warning(
+                f"Rejected session-key request for model '{model}' outside the session allowlist")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model '{model}' is not enabled for this session. "
+                       "Use /v1/models to list the models available to you.",
+            )
+    if source in ("api", "ui"):
+        try:
+            over = budget.blocked(policy["session_id"], policy.get("llm_budget_usd"))
+        except (TypeError, ValueError):
+            over = False  # malformed budget value: don't take the LLM down mid-interview
+        if over:
+            verbose_proxy_logger.warning("Refused call: session LLM budget exhausted")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="This session's LLM budget is exhausted. "
+                       "Ask the interviewer to raise the budget.",
+            )
+
+
+def _price_and_count(model: str, usage: Optional[Dict[str, Any]]) -> Optional[float]:
+    """Price one completion and count it against the active session.
+
+    Called before the transcript line is appended (budget.add seeds from the file, so
+    the other order would double-count on a cold start). Accounting must never break
+    the candidate's request or the audit line."""
+    try:
+        cost = budget.cost_of(model, usage)
+        sid = transcript.active_session_id()
+        if sid:
+            budget.add(sid, cost)
+        return cost
+    except Exception as exc:
+        verbose_proxy_logger.warning(f"cost accounting failed: {exc}")
+        return None
+
+
 # Chat completions endpoint
 def _transcript_source(request: Request, user_api_key_dict: UserAPIKeyAuth) -> str:
     """Attribute a call for the transcript. A candidate's workspace call authenticates
@@ -310,23 +382,24 @@ async def chat_completions(
     https://platform.openai.com/docs/api-reference/chat/create
     """
     _enforce_rate_limit(user_api_key_dict)
+    source = _transcript_source(request, user_api_key_dict)
     # Extract parameters from request body
     model = request_body.model
+    _enforce_session_policy(model, user_api_key_dict, source)  # allowlist + budget
     messages = [msg.model_dump(exclude_none=True) for msg in request_body.messages]
     stream = request_body.stream or False
     temperature = request_body.temperature
     top_p = request_body.top_p
     max_tokens = limits.cap_output_tokens(request_body.max_tokens)  # hard ceiling
     stop = request_body.stop
-  
+
     # Get handler and model config
     handler = _get_handler_for_model(model)
     actual_model = _get_actual_model_name(model)
     model_params = _get_model_params(model)
-  
+
     verbose_proxy_logger.debug(f"Chat completion request for model: {model} -> {actual_model}")
 
-    source = _transcript_source(request, user_api_key_dict)
     started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
         handler_kwargs = {
@@ -348,16 +421,18 @@ async def chat_completions(
             # untouched, and the audit trail still records what was generated.
             return StreamingResponse(
                 transcript.tee_stream(response, endpoint="chat.completions", model=model,
-                                      messages=messages, started=started, source=source),
+                                      messages=messages, started=started, source=source,
+                                      price=lambda usage: _price_and_count(model, usage)),
                 media_type="text/event-stream",
             )
         else:
             # Update model name in response to match request
             response.model = model
+            usage = transcript.usage_of(response)
             transcript.record(
                 endpoint="chat.completions", model=model, messages=messages,
                 response_text=transcript.text_of(response),
-                usage=transcript.usage_of(response),
+                usage=usage, cost_usd=_price_and_count(model, usage),
                 latency_ms=int((time.monotonic() - started) * 1000), source=source,
             )
             return response
@@ -389,23 +464,24 @@ async def completions(
     https://platform.openai.com/docs/api-reference/completions/create
     """
     _enforce_rate_limit(user_api_key_dict)
+    source = _transcript_source(request, user_api_key_dict)
     # Extract parameters from request body
     model = request_body.model
+    _enforce_session_policy(model, user_api_key_dict, source)  # allowlist + budget
     prompt = request_body.prompt
     stream = request_body.stream or False
     temperature = request_body.temperature
     top_p = request_body.top_p
     max_tokens = limits.cap_output_tokens(request_body.max_tokens)  # hard ceiling
     stop = request_body.stop
-  
+
     # Get handler and model config
     handler = _get_handler_for_model(model)
     actual_model = _get_actual_model_name(model)
     model_params = _get_model_params(model)
-  
+
     verbose_proxy_logger.debug(f"Text completion request for model: {model} -> {actual_model}")
 
-    source = _transcript_source(request, user_api_key_dict)
     started = time.monotonic()  # transcript: latency of the call we are about to audit
     try:
         handler_kwargs = {
@@ -425,16 +501,18 @@ async def completions(
         if stream:
             return StreamingResponse(
                 transcript.tee_stream(response, endpoint="completions", model=model,
-                                      prompt=prompt, started=started, source=source),
+                                      prompt=prompt, started=started, source=source,
+                                      price=lambda usage: _price_and_count(model, usage)),
                 media_type="text/event-stream",
             )
         else:
             # Update model name in response to match request
             response.model = model
+            usage = transcript.usage_of(response)
             transcript.record(
                 endpoint="completions", model=model, prompt=prompt,
                 response_text=transcript.text_of(response),
-                usage=transcript.usage_of(response),
+                usage=usage, cost_usd=_price_and_count(model, usage),
                 latency_ms=int((time.monotonic() - started) * 1000), source=source,
             )
             return response

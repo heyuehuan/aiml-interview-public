@@ -269,7 +269,9 @@ def detail(req, sid):
         who, s, moderation=_moderation_state(s), notice=req.query.get("notice"),
         reactivate=reactivate,
         has_review=reviews.exists(sid, s["candidate_name"]),
-        comparisons=reviews.comparisons_for(sid)))
+        comparisons=reviews.comparisons_for(sid),
+        llm_spend=model.llm_spend_usd(sid),
+        llm_cutoff_usd=s["llm_budget_usd"] * model.LLM_BUDGET_CUTOFF_FACTOR))
 
 
 @router.route("GET", "/admin/sessions/<sid>/handout")
@@ -591,6 +593,28 @@ def edit_save(req, sid):
     except ValueError as exc:
         return Response.redirect(f"/admin/sessions/{sid}/edit?error={_q(str(exc))}")
     return Response.redirect(f"/admin/sessions/{sid}")
+
+
+@router.route("POST", "/admin/sessions/<sid>/llm")
+def update_llm_limits(req, sid):
+    """Mid-interview relief valve: budget/models only, valid on a live
+    session, republished to the control file so unillm honours it on the next call."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    try:
+        s = model.update_llm_limits(
+            sid,
+            llm_budget_usd=float(req.form.get("llm_budget_usd") or 0),
+            llm_models=req.getlist("llm_models") or None,
+            actor=who,
+        )
+    except ValueError as exc:
+        return Response.redirect(f"/admin/sessions/{sid}?notice={_q(str(exc))}")
+    integrations.refresh_control_session_fields(s)
+    return Response.redirect(f"/admin/sessions/{sid}?notice={_q('LLM limits updated.')}")
 
 
 @router.route("POST", "/admin/sessions/<sid>/delete")
