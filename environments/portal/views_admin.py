@@ -479,9 +479,9 @@ def _report_session_links(r):
         return ('<span class="label st-reset" title="No session in the database claims '
                 'this report — it may have been deleted, or the file may name a stale '
                 'id.">unmatched</span>')
-    return " ".join(
-        f'<a href="/admin/sessions/{esc(s["id"])}">{esc(s["candidate_name"])}</a> '
-        f'{theme.state_label(s["state"])}'
+    return "".join(
+        f'<div class="session-link"><a href="/admin/sessions/{esc(s["id"])}">'
+        f'{esc(s["candidate_name"])}</a>{theme.state_label(s["state"])}</div>'
         for s in r["sessions"])
 
 
