@@ -173,6 +173,31 @@ def test_reports_page_says_where_a_missing_report_comes_from(tmp_path, monkeypat
     assert "config/reviews/" in html
 
 
+def test_index_withholds_the_verdict_until_asked(tmp_path, monkeypatch):
+    """The verdict text still ships in the HTML — this hides it from the room, not from
+    the admin who already has the report open — but no row renders it visibly without a
+    click, and each table carries its own Show all."""
+    _with_dir(tmp_path, {"a.md": REVIEW, "c.md": COMPARISON}, monkeypatch)
+    html = views_admin.reports_page("admin", reviews.index(SESSIONS))
+    assert html.count('<td class="reveal">') == 2          # one review + one comparison
+    assert '<span class="reveal-text">Provisional hire</span>' in html
+    assert '<span class="reveal-text">Ada ahead of Grace</span>' in html
+    assert html.count(">Show all</button>") == 2           # per table, not per page
+    assert html.count(">Show</button>") == 2               # ...and per row
+    assert "reveal-text" in views_admin.theme.CSS          # the rule that hides it
+
+
+def test_show_all_is_absent_when_no_row_has_a_verdict(tmp_path, monkeypatch):
+    """A control that toggles nothing is noise. An empty table gets neither it nor a
+    reveal cell."""
+    _with_dir(tmp_path, {"a.md": REVIEW.replace("rating: Provisional hire\n", "")},
+              monkeypatch)
+    html = views_admin.reports_page("admin", reviews.index(SESSIONS))
+    assert ">Show all</button>" not in html
+    assert '<td class="reveal">' not in html
+    assert "No comparisons uploaded yet." in html
+
+
 def test_reports_is_a_top_level_tab_and_can_be_current():
     assert 'href="/admin/reports"' in views_admin._tabs("sessions")
     assert '<a href="/admin/reports" aria-current="page">' in views_admin._tabs("reports")

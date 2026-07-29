@@ -61,6 +61,13 @@ From a session's detail page:
 ranking above the fold, the AI-generated banner and Scope-and-limits block above that, and
 a numbered footer on every sheet.
 
+On the index the Recommendation/Ranking column is **withheld until asked for**: each row
+shows a **Show** button, and each table's header carries **Show all** / **Hide all**. This
+index gets opened in front of other people far more often than a single report does, so a
+row does not volunteer "No hire" merely because the tab is open. It is a display default,
+not a security control — the text is in the HTML, and anyone who can load the page can
+already open the report itself.
+
 Both kinds are Markdown in `config/reviews/*.md`, authored offline and published by commit
 + `make deploy`; nothing here is generated on the box. `kind: comparison` marks a
 comparison and `sessions` / `session_ids` name what it covers — a comparison never claims a

@@ -485,6 +485,19 @@ def _report_session_links(r):
         for s in r["sessions"])
 
 
+def _rating_cell(rating):
+    """The verdict, withheld until asked for. It is the one thing on this page that decides
+    someone's career, and the index is opened in front of other people (screen shares,
+    a debrief) far more often than a single report is — so a row does not volunteer
+    "No hire" merely because the tab is open. One click per row, or Show all."""
+    if not rating:
+        return '<td><span class="muted">—</span></td>'
+    return (f'<td class="reveal">'
+            f'<button type="button" class="btn btn-sm js-reveal"'
+            f' aria-label="Show verdict">Show</button>'
+            f'<span class="reveal-text">{esc(rating)}</span></td>')
+
+
 def _report_row(r):
     """One report. The subject is the link — a comparison's subject is every candidate it
     ranks, so it reads as "Alex Example (s1), Sam Sample (s2)" rather than as a filename."""
@@ -494,20 +507,42 @@ def _report_row(r):
     return f"""<tr>
 <td><a href="/admin/reports/{esc(r['slug'])}" target="_blank" rel="noopener"
        title="Open the report, print-styled for PDF">{esc(subject)}</a>{label}
-  <div class="muted small mono">{esc(r['file'])}</div></td>
-<td>{esc(r['rating']) or '<span class="muted">—</span>'}</td>
+  <div class="muted small mono nowrap">{esc(r['file'])}</div></td>
+{_rating_cell(r['rating'])}
 <td>{_report_session_links(r)}</td>
-<td class="muted small">{esc(r['model'])}</td>
-<td class="muted small">{esc(r['generated'] or '—')}</td></tr>"""
+<td class="muted small nowrap">{esc(r['model'])}</td>
+<td class="muted small nowrap">{esc(r['generated'] or '—')}</td></tr>"""
 
 
 def _report_table(rows, subject_head, rating_head, empty):
+    """Show all sits in the verdict column's own header, so what it controls is directly
+    below it and its scope is this table, not the page."""
     body = "".join(_report_row(r) for r in rows) or (
         f'<tr><td colspan="5"><div class="blankslate">{empty}</div></td></tr>')
+    toggle = ('<button type="button" class="btn btn-sm btn-invisible js-reveal-all">'
+              'Show all</button>') if any(r["rating"] for r in rows) else ""
     return f"""<table class="table">
-<thead><tr><th>{subject_head}</th><th>{rating_head}</th><th>Session(s)</th>
-<th>Model</th><th>Generated</th></tr></thead>
+<thead><tr><th>{subject_head}</th>
+<th class="nowrap">{rating_head} {toggle}</th><th>Session(s)</th>
+<th class="nowrap">Model</th><th class="nowrap">Generated</th></tr></thead>
 <tbody>{body}</tbody></table>"""
+
+
+# Delegated so it covers both tables and survives an empty one.
+_REVEAL_SCRIPT = """<script>
+document.addEventListener('click', function(e){
+  var one = e.target.closest('.js-reveal');
+  if (one) { one.closest('.reveal').classList.add('shown'); return; }
+  var all = e.target.closest('.js-reveal-all');
+  if (!all) return;
+  var show = all.getAttribute('data-shown') !== '1';
+  all.closest('table').querySelectorAll('.reveal').forEach(function(c){
+    c.classList.toggle('shown', show);
+  });
+  all.setAttribute('data-shown', show ? '1' : '0');
+  all.textContent = show ? 'Hide all' : 'Show all';
+});
+</script>"""
 
 
 def reports_page(who, rows, notice=None):
@@ -536,9 +571,11 @@ def reports_page(who, rows, notice=None):
                  "<span class='mono'>kind: comparison</span> in "
                  "<span class='mono'>config/reviews/</span> appears here.")}
 </div>
-<p class="muted small">Every report prints its AI-generated banner, scope caveat and
+<p class="muted small">Verdicts are hidden until you ask for them — this page is often open
+  in front of other people. Every report prints its AI-generated banner, scope caveat and
   per-page footer. They are confidential hiring material: admin-only, never mounted into a
-  candidate container.</p>"""
+  candidate container.</p>
+{_REVEAL_SCRIPT}"""
     return _page("Reports · Admin", body, who, tab="reports")
 
 
