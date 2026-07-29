@@ -52,6 +52,22 @@ From a session's detail page:
   (Direct API call / UI playground / Admin test) and a substring search over
   prompt/response. Source is the proxy's tamper-proof attribution.
 
+## Reports tab
+
+**`/admin/reports`** aggregates every uploaded AI report: the per-session hiring reviews
+(also reachable as **AI Review** on a session's detail page) and the cross-session
+**comparisons**, which belong to no single session and had no home before this tab.
+`/admin/reports/<slug>` opens either kind on the same print-to-PDF page — verdict or
+ranking above the fold, the AI-generated banner and Scope-and-limits block above that, and
+a numbered footer on every sheet.
+
+Both kinds are Markdown in `config/reviews/*.md`, authored offline and published by commit
++ `make deploy`; nothing here is generated on the box. `kind: comparison` marks a
+comparison and `sessions` / `session_ids` name what it covers — a comparison never claims a
+session, so it can never surface as one candidate's review, but each session it names links
+back to it from the session's own detail page. A report whose session was deleted is listed
+as **unmatched** rather than dropped. Format and house rules: `config/reviews/README.md`.
+
 ## The non-root workspace
 
 The admin sets a **`workspace_user`** (non-root OS login) per session. On activation the

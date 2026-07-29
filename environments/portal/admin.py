@@ -109,6 +109,36 @@ def llm_tab(req):
     return _llm_page(who, notice=req.query.get("notice"))
 
 
+# --- Reports tab ---------------------------------
+@router.route("GET", "/admin/reports")
+def reports_tab(req):
+    """Index of every uploaded report — per-session reviews and cross-session comparisons.
+    The session list is passed only so each report can be resolved to the session(s) it
+    covers; a report whose session is gone is still listed, marked unmatched."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    return Response.html(views.reports_page(
+        who, reviews.index(model.list_sessions()), notice=req.query.get("notice")))
+
+
+@router.route("GET", "/admin/reports/<slug>")
+def report_view(req, slug):
+    """One report, print-styled, either kind. `slug` is a filename stem — reviews.by_slug
+    rejects anything that could name a path, so no filesystem check is needed here."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    c = reviews.report(slug)
+    if c is None:
+        # Nothing in the app writes reports, so a miss is a hand-typed URL or a file removed
+        # between page load and click — say where one comes from rather than a bare 404.
+        return Response.text(
+            "no such report — reports are Markdown files uploaded to config/reviews/",
+            status=404)
+    return Response.html(views.report_page(c))
+
+
 @router.route("GET", "/admin/settings")
 def settings_tab(req):
     who, redirect = _require(req)
@@ -238,7 +268,8 @@ def detail(req, sid):
     return Response.html(views.admin_session_detail(
         who, s, moderation=_moderation_state(s), notice=req.query.get("notice"),
         reactivate=reactivate,
-        has_review=reviews.exists(sid, s["candidate_name"])))
+        has_review=reviews.exists(sid, s["candidate_name"]),
+        comparisons=reviews.comparisons_for(sid)))
 
 
 @router.route("GET", "/admin/sessions/<sid>/handout")
