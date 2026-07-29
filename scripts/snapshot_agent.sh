@@ -48,7 +48,9 @@ while true; do
       # Bare repo + explicit work-tree (the "dotfiles" pattern): add/commit operate on the
       # workspace while history lands cleanly in shadow.git with no nested checkout.
       export GIT_DIR="$shadow" GIT_WORK_TREE="$WORKSPACE_DIR"
-      git add -A 2>/dev/null || true
+      # -f: the workspace is candidate-writable, so a plain add would honor a
+      # candidate-written .gitignore — an audit stream the subject can filter (#2).
+      git add -A -f 2>/dev/null || true
       if ! git diff --cached --quiet 2>/dev/null; then
         if git commit -q -m "snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)" 2>/dev/null; then
           log "committed workspace snapshot for $sid"
