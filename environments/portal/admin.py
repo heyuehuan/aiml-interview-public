@@ -622,6 +622,20 @@ def _lifecycle(action):
     return handler
 
 
+def _refuse_if_unexported_owner(sid):
+    """The workspace changes hands here. If the volume's last owner is a closed session
+    with no export bundle, activation's wipe destroys the only copy of its record, and
+    reactivating a *different* session makes the snapshot agent commit the owner's
+    leftover files into the wrong shadow.git — refuse both until the owner is exported
+    or deleted."""
+    stranded = model.unexported_workspace_owner(exclude_id=sid)
+    if stranded:
+        raise ValueError(
+            f"the workspace still holds {stranded['candidate_name']}'s closed session "
+            f"and no export bundle exists — Export it (or delete the session) first, "
+            f"or that record is lost")
+
+
 def _activate(req, sid, who):
     s = model.get_session(sid)
     if s is None:
@@ -632,15 +646,7 @@ def _activate(req, sid, who):
         raise ValueError(
             f"{live['candidate_name']}'s session is still active — close it before "
             f"activating another (one candidate at a time)")
-    # Activation wipes the workspace volume below. If the volume's last owner is a
-    # closed session with no export bundle, that wipe destroys the only copy of its
-    # record — so refuse until it is exported or deleted.
-    stranded = model.unexported_workspace_owner(exclude_id=sid)
-    if stranded:
-        raise ValueError(
-            f"the workspace still holds {stranded['candidate_name']}'s closed session "
-            f"and no export bundle exists — Export it (or delete the session) before "
-            f"activating, or that record is wiped")
+    _refuse_if_unexported_owner(sid)
     # Provision in the order that fails safely: package first (this is the step that
     # refuses when a problem would ship no data), and only then flip the state. A failure
     # here leaves the session in `created`, so the admin can fix it and hit Activate
@@ -676,6 +682,7 @@ def _reactivate(req, sid, who):
         raise ValueError(
             f"{live['candidate_name']}'s session is still active — close it before "
             f"reactivating another (one candidate at a time)")
+    _refuse_if_unexported_owner(sid)
     raw_total = (req.form.get("total_minutes") or "").strip()
     total = int(raw_total) if raw_total else None
     integrations.preflight_activate(s)          # re-package (can fail → stays closed)
