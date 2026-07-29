@@ -96,6 +96,22 @@ CREATE TABLE IF NOT EXISTS mcq_answer_events (
 );
 CREATE INDEX IF NOT EXISTS mcq_events_by_session
     ON mcq_answer_events(session_id, problem_id, question_id, id);
+
+-- Interviewer testimony: a result the platform could not capture (e.g. an MCQ
+-- screen shown before capture shipped, or reasoning given aloud), recorded after the fact
+-- by the interviewer. Testimony, not artifact — every surface renders it with that label.
+-- Append-only: there is no update or delete.
+CREATE TABLE IF NOT EXISTS mcq_notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    problem_id  TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    note        TEXT NOT NULL,
+    author      TEXT NOT NULL,
+    ts          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mcq_notes_by_session
+    ON mcq_notes(session_id, problem_id, question_id, id);
 """
 
 _SCHEMA_TAIL = """

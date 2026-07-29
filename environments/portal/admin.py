@@ -348,6 +348,7 @@ def answers_view(req, sid):
         return Response.not_found()
     saved = model.all_answers(sid)
     trail = model.answer_trail(sid)
+    notes = model.mcq_notes(sid)
     released = model.all_released(sid)
     problems = []
     for pid in s["problem_ids"] or []:
@@ -360,9 +361,39 @@ def answers_view(req, sid):
                          "answer": saved.get((pid, q["qid"])),
                          "released": released.get(pid, 0),
                          "trail": [t for t in trail
-                                   if t["problem_id"] == pid and t["question_id"] == q["qid"]]})
+                                   if t["problem_id"] == pid and t["question_id"] == q["qid"]],
+                         "notes": [n for n in notes
+                                   if n["problem_id"] == pid and n["question_id"] == q["qid"]]})
         problems.append({"id": pid, "questions": rows})
-    return Response.html(views.admin_answers_page(who, s, problems))
+    return Response.html(views.admin_answers_page(
+        who, s, problems, captured=model.mcq_capture_available(s),
+        notice=req.query.get("notice"), error=req.query.get("error")))
+
+
+@router.route("POST", "/admin/sessions/<sid>/answers/note")
+def add_answer_note(req, sid):
+    """Attach an interviewer note to one question — testimony, not artifact (contracts
+    §3). Append-only; the question must belong to an assigned problem."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    pid = (req.form.get("problem_id") or "").strip()
+    qid = (req.form.get("question_id") or "").strip()
+    back = f"/admin/sessions/{sid}/answers"
+    try:
+        if pid not in (s["problem_ids"] or []):
+            raise ValueError("that problem isn't assigned to this session")
+        if qid not in {q["qid"] for q in registry.all_question_ids(pid)}:
+            raise ValueError("that question isn't in the problem's statement")
+        model.add_mcq_note(sid, pid, qid, req.form.get("note", ""), author=who)
+    except ValueError as exc:
+        return Response.redirect(f"{back}?error={_q(str(exc))}")
+    return Response.redirect(f"{back}?notice={_q('Note recorded as interviewer testimony.')}")
 
 
 # --- candidate workspace file manager ---------------------------------------
@@ -601,6 +632,15 @@ def _activate(req, sid, who):
         raise ValueError(
             f"{live['candidate_name']}'s session is still active — close it before "
             f"activating another (one candidate at a time)")
+    # Activation wipes the workspace volume below. If the volume's last owner is a
+    # closed session with no export bundle, that wipe destroys the only copy of its
+    # record — so refuse until it is exported or deleted.
+    stranded = model.unexported_workspace_owner(exclude_id=sid)
+    if stranded:
+        raise ValueError(
+            f"the workspace still holds {stranded['candidate_name']}'s closed session "
+            f"and no export bundle exists — Export it (or delete the session) before "
+            f"activating, or that record is wiped")
     # Provision in the order that fails safely: package first (this is the step that
     # refuses when a problem would ship no data), and only then flip the state. A failure
     # here leaves the session in `created`, so the admin can fix it and hit Activate
@@ -664,6 +704,13 @@ def _extend(req, sid, who):
 def _close(req, sid, who):
     model.close(sid, actor=who)
     integrations.on_close(sid)
+    # Safety bundle: a session closed without an export has its only copy on the live
+    # workspace volume, which the next activation wipes. Write the
+    # bundle now, while the workspace is certainly intact. Best-effort — a failure
+    # logs (integrations) and never blocks the close; the state stays `closed`, so the
+    # explicit Export action and reactivation are unchanged.
+    if integrations.export_session(sid):
+        model.record_event(sid, who, "session_safety_exported")
 
 
 def _export(req, sid, who):
