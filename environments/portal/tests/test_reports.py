@@ -173,6 +173,17 @@ def test_reports_page_says_where_a_missing_report_comes_from(tmp_path, monkeypat
     assert "config/reviews/" in html
 
 
+def test_each_session_gets_its_own_line(tmp_path, monkeypatch):
+    """A comparison covers several sessions. Flowed inline they wrap wherever the column
+    ends, which can strand a state label under the wrong candidate."""
+    _with_dir(tmp_path, {"c.md": COMPARISON}, monkeypatch)
+    html = views_admin.reports_page("admin", reviews.index(SESSIONS))
+    assert html.count('<div class="session-link">') == 2   # both subjects of the comparison
+    assert ('<div class="session-link"><a href="/admin/sessions/sess-1">Ada Lovelace</a>'
+            in html)
+    assert "session-link" in views_admin.theme.CSS         # the rule that breaks the line
+
+
 def test_index_withholds_the_verdict_until_asked(tmp_path, monkeypatch):
     """The verdict text still ships in the HTML — this hides it from the room, not from
     the admin who already has the report open — but no row renders it visibly without a

@@ -197,6 +197,12 @@ table.table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
 /* Opt-in per cell. A filename or a date broken across two lines reads as two values. */
 .table .nowrap {{ white-space: nowrap; }}
 
+/* One session per line, name and state kept together on it. Flowed inline, a comparison's
+   two sessions wrap wherever the column happens to end — "Alex Example exported Sam Sample / closed"
+   pairs the wrong state with the wrong candidate to anyone skimming. */
+.session-link {{ display: flex; align-items: center; gap: 6px; white-space: nowrap; }}
+.session-link + .session-link {{ margin-top: 4px; }}
+
 /* A cell whose content is withheld until asked for: the Show button stands in for the
    text, and `.shown` on the cell swaps them. Toggling a class rather than the `hidden`
    attribute because `.btn` is display:inline-flex, which outranks the UA's [hidden]. */
