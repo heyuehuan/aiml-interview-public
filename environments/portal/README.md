@@ -106,7 +106,8 @@ python -m pytest tests/            # state machine + code tests
 
 `PORTAL_SECRET` (cookie signing), `ADMIN_USERNAME` + `ADMIN_PASSWORD` or
 `ADMIN_PASSWORD_HASH`, `PLATFORM_DB`, `DATA_DIR`, `CONTROL_FILE`, `PROBLEMS_SEED_DIR`,
-`PROBLEMS_REGISTRY`, `LLM_ADMIN_URL`, `LLM_BASE_URL`, `CODE_GRACE_MINUTES` (default 60),
+`PROBLEMS_REGISTRY`, `UNILLM_MASTER_KEY`, `UNILLM_INTERNAL_URL`, `LLM_BASE_URL`,
+`CODE_GRACE_MINUTES` (default 60),
 `PORTAL_PUBLIC_URL` (default `https://interview.example.com/` — the URL printed on the
 admin's candidate handout; display only), `HANDOUT_FILE` (default `/srv/config/handout.md`).
 
