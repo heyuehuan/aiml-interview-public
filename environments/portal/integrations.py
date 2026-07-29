@@ -510,6 +510,7 @@ def write_control(session, llm_api_key):
         "llm_base_url": LLM_BASE_URL,
         "llm_api_key": llm_api_key,
         "llm_models": session["llm_models"],
+        "llm_budget_usd": session["llm_budget_usd"],
         "ends_at": session.get("ends_at"),
     }
     _atomic_write(CONTROL_FILE, json.dumps(doc, indent=2))
@@ -527,6 +528,24 @@ def refresh_control_ends_at(session):
         return
     if doc.get("state") != "active" or doc.get("session_id") != session["id"]:
         return
+    doc["ends_at"] = session.get("ends_at")
+    _atomic_write(CONTROL_FILE, json.dumps(doc, indent=2))
+
+
+def refresh_control_session_fields(session):
+    """Rewrite the live control file's editable LLM fields after an admin change: unillm reads `llm_models` and `llm_budget_usd` per request, so raising
+    the budget or enabling a model mid-interview takes effect on the candidate's next
+    call — no re-activation. No-op unless the control file already names this session
+    active, so a stale/other session's handoff is never clobbered."""
+    try:
+        with open(CONTROL_FILE, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (FileNotFoundError, ValueError):
+        return
+    if doc.get("state") != "active" or doc.get("session_id") != session["id"]:
+        return
+    doc["llm_models"] = session["llm_models"]
+    doc["llm_budget_usd"] = session["llm_budget_usd"]
     doc["ends_at"] = session.get("ends_at")
     _atomic_write(CONTROL_FILE, json.dumps(doc, indent=2))
 

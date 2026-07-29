@@ -97,13 +97,18 @@ def _append(entry):
 
 
 def record(*, endpoint, model, messages=None, prompt=None, response_text=None,
-           usage=None, stream=False, latency_ms=None, error=None, source=None):
+           usage=None, stream=False, latency_ms=None, error=None, source=None,
+           cost_usd=None):
     """Append one completion to the active session's transcript. Never raises.
 
     ``source`` attributes the call: "api" for a candidate's direct workspace call, "ui"
     for the portal Gemini playground, "admin-test" for the admin health check. The proxy
     derives it from *which key* authenticated the request, not from candidate-settable
-    input, so it can't be spoofed (see auth.is_session_key)."""
+    input, so it can't be spoofed (see auth.is_session_key).
+
+    ``cost_usd`` is priced by the caller (proxy_server + budget), not here:
+    this module must stay loadable without the unillm.proxy package, whose __init__
+    pulls in the FastAPI app."""
     try:
         entry = {
             "ts": _now_iso(),
@@ -125,6 +130,8 @@ def record(*, endpoint, model, messages=None, prompt=None, response_text=None,
             entry["response"] = _clip(response_text)
         if usage is not None:
             entry["usage"] = usage
+        if cost_usd is not None:
+            entry["cost_usd"] = round(float(cost_usd), 6)
         if error is not None:
             entry["error"] = _clip(str(error))
         _append(entry)
@@ -153,33 +160,44 @@ def usage_of(response):
 
 
 async def tee_stream(chunks, *, endpoint, model, messages=None, prompt=None, started,
-                     source=None):
+                     source=None, price=None):
     """Wrap a streaming response so the transcript still captures what was said.
 
-    Yields every chunk through untouched, accumulating the assistant deltas, and writes a
-    single transcript line when the stream ends. A parse failure on one chunk costs us
-    that fragment of the transcript, never the candidate's stream."""
+    Yields every chunk through untouched, accumulating the assistant deltas (and the
+    token usage Gemini reports on its final chunk), and writes a single transcript line
+    when the stream ends. ``price`` is an optional callable mapping that
+    usage dict to a cost_usd — supplied by proxy_server so streamed completions count
+    against the session budget exactly like non-streamed ones. A parse failure on one
+    chunk costs us that fragment of the transcript, never the candidate's stream."""
     parts = []
+    usage = None
     try:
         async for chunk in chunks:
             try:
                 parts.append(_delta_text(chunk))
+                usage = _chunk_usage(chunk) or usage
             except Exception:
                 pass
             yield chunk
     finally:
+        cost = None
+        if price is not None:
+            try:
+                cost = price(usage)
+            except Exception:  # accounting must never break the audit line
+                cost = None
         record(endpoint=endpoint, model=model, messages=messages, prompt=prompt,
-               response_text="".join(p for p in parts if p), stream=True,
+               response_text="".join(p for p in parts if p), stream=True, usage=usage,
+               cost_usd=cost,
                latency_ms=int((time.monotonic() - started) * 1000), source=source)
 
 
-def _delta_text(chunk):
-    """Pull the text delta out of one SSE chunk (`data: {...}`), or "" if there is none."""
+def _sse_docs(chunk):
+    """The JSON payloads of one SSE chunk's `data: {...}` lines."""
     if isinstance(chunk, (bytes, bytearray)):
         chunk = chunk.decode("utf-8", "replace")
     if not isinstance(chunk, str):
-        return ""
-    out = []
+        return
     for line in chunk.splitlines():
         line = line.strip()
         if not line.startswith("data:"):
@@ -187,9 +205,25 @@ def _delta_text(chunk):
         payload = line[len("data:"):].strip()
         if not payload or payload == "[DONE]":
             continue
-        doc = json.loads(payload)
+        yield json.loads(payload)
+
+
+def _delta_text(chunk):
+    """Pull the text delta out of one SSE chunk (`data: {...}`), or "" if there is none."""
+    out = []
+    for doc in _sse_docs(chunk):
         for ch in doc.get("choices", []):
             delta = ch.get("delta") or {}
             if delta.get("content"):
                 out.append(delta["content"])
     return "".join(out)
+
+
+def _chunk_usage(chunk):
+    """The OpenAI-shaped `usage` object carried by an SSE chunk, or None. Gemini reports
+    usageMetadata on its final streamed chunk; the vertex handler maps it through."""
+    usage = None
+    for doc in _sse_docs(chunk):
+        if isinstance(doc.get("usage"), dict):
+            usage = doc["usage"]
+    return usage
