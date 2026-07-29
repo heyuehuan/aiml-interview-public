@@ -194,6 +194,15 @@ table.table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
 .table tr:first-child td {{ border-top: 0; }}
 .box > .table th:first-child, .box > .table td:first-child {{ padding-left: 16px; }}
 .box .table {{ border-radius: 6px; overflow: hidden; }}
+/* Opt-in per cell. A filename or a date broken across two lines reads as two values. */
+.table .nowrap {{ white-space: nowrap; }}
+
+/* A cell whose content is withheld until asked for: the Show button stands in for the
+   text, and `.shown` on the cell swaps them. Toggling a class rather than the `hidden`
+   attribute because `.btn` is display:inline-flex, which outranks the UA's [hidden]. */
+.reveal .reveal-text {{ display: none; }}
+.reveal.shown .reveal-text {{ display: inline; }}
+.reveal.shown .btn {{ display: none; }}
 
 .blankslate {{ text-align: center; padding: 32px 16px; color: var(--fg-muted); }}
 
