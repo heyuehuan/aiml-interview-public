@@ -34,12 +34,18 @@ RUN code-server --extensions-dir /opt/cs/extensions \
     && chmod -R a+rX /opt/cs
 
 # Baseline VS Code settings, copied into the candidate's user-data-dir at session start.
+# autoSave keeps titled files current between manual saves (untitled buffers are covered
+# by the hot-exit backup relocation in the entrypoint, #2); files.exclude keeps the
+# .audit backup dir out of the explorer/search — tidy, not secret (terminal still sees it).
 RUN mkdir -p /opt/cs && \
     printf '%s\n' \
       '{' \
       '  "python.defaultInterpreterPath": "/usr/local/bin/python",' \
       '  "extensions.autoCheckUpdates": false,' \
-      '  "extensions.autoUpdate": false' \
+      '  "extensions.autoUpdate": false,' \
+      '  "files.autoSave": "afterDelay",' \
+      '  "files.autoSaveDelay": 1000,' \
+      '  "files.exclude": { "**/.audit": true }' \
       '}' > /opt/cs/settings.json
 
 # Workspace entrypoint: waits for an active session, creates the non-root candidate user,

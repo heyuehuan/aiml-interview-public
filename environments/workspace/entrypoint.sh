@@ -77,6 +77,20 @@ if [ "$TOOL" = "code-server" ]; then
   # Always write coder.json so VS Code opens the right folder, not a stale one from
   # a previous session that used a different workspace_user.
   printf '{"query":{"folder":"%s/workspace"}}\n' "$HOME_DIR" > "$USER_DATA/coder.json"
+  # Untitled (never-saved) editors exist on disk only as Code-OSS hot-exit backups
+  # under the user-data dir — container-local, invisible to the snapshot agent (#2).
+  # Point the backup home at the snapshotted workspace volume so those buffers ride
+  # shadow.git. Both locations code-server has used across versions are linked; a
+  # pre-existing real dir (container restart mid-session) is folded in, not lost.
+  BACKUPS_DIR="$WORKDIR/.audit/code-server-backups"
+  mkdir -p "$BACKUPS_DIR"
+  for d in "$USER_DATA/Backups" "$USER_DATA/User/Backups"; do
+    if [ -e "$d" ] && [ ! -L "$d" ]; then
+      mv "$d" "$BACKUPS_DIR/migrated-$(date -u +%Y%m%dT%H%M%SZ)-$RANDOM"
+    fi
+    ln -sfn "$BACKUPS_DIR" "$d"
+  done
+  chown -R "$USER_NAME:$USER_NAME" "$WORKDIR/.audit"
   chown -R "$USER_NAME:$USER_NAME" "$HOME_DIR/.local"
   log "launching code-server as $USER_NAME"
   gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
