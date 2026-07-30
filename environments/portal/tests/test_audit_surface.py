@@ -170,6 +170,27 @@ def test_empty_repo_and_missing_repo(shadow, tmp_path):
         gitread.Repo(str(tmp_path / "nope"))
 
 
+@needs_git
+def test_candidate_nested_repo_becomes_an_unreadable_gitlink(shadow):
+    """A candidate running git init/clone in the workspace makes `git add -A` record a
+    gitlink (mode 160000) whose object only exists in the nested repo — the reader must
+    surface it as unreadable, and the admin route renders a note instead of 500ing."""
+    sub = os.path.join(shadow["work"], "sub")
+    subprocess.run([GIT, "init", "-q", sub], check=True)
+    subprocess.run([GIT, "-C", sub, "-c", "user.email=c@x", "-c", "user.name=cand",
+                    "commit", "-q", "--allow-empty", "-m", "inner"], check=True)
+    shadow["write"]("a.txt", "hello\n")
+    shadow["commit"]("snapshot with nested repo")
+    repo = gitread.Repo(shadow["gitdir"])
+    head = repo.log()[0]["sha"]
+    files = repo.commit_files(head)
+    assert files["sub"][1] == "160000"
+    summary = {(d[0], d[1]) for d in repo.diff_summary(head)}
+    assert ("A", "sub") in summary and ("A", "a.txt") in summary
+    with pytest.raises(gitread.GitReadError):
+        repo.blob(files["sub"][0])              # the admin route catches exactly this
+
+
 def test_unified_diff_caps_and_binary_probe():
     lines, truncated = gitread.unified_diff(b"a\nb\n", b"a\nc\n", "f.txt")
     assert any(ln.startswith("-b") for ln in lines)
