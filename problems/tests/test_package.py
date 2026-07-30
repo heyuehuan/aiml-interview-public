@@ -109,3 +109,18 @@ def test_generator_cannot_read_solution(tmp_path, monkeypatch):
     shipped = os.listdir(dest / pid / "data")
     assert "dataset.csv" in shipped
     assert "leaked.txt" not in shipped
+
+
+def test_parse_manifest_reads_the_trimmed_schema(tmp_path):
+    """status (the visibility baseline) is a manifest field now; the parser
+    returns exactly the trimmed schema's fields."""
+    p = tmp_path / "problem.yaml"
+    p.write_text(
+        "id: p-002\ntitle: T  # comment\nstatus: hidden\n"
+        "summary: >\n  first line\n  second line\n"
+        "candidate_paths:\n  - problem.md\ndata:\n  generator: data/generate.py\n"
+    )
+    man = package.parse_manifest(str(p))
+    assert man == {"id": "p-002", "title": "T", "status": "hidden",
+                   "summary": "first line second line",
+                   "candidate_paths": ["problem.md"], "generator": "data/generate.py"}

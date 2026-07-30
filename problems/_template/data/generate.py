@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-SEED = 20260901  # keep in sync with problem.yaml data.seed
+SEED = 20260901  # fixed: same seed -> same dataset for every candidate
 
 
 def generate(out_dir: Path, seed: int = SEED) -> None:

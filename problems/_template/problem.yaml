@@ -1,36 +1,28 @@
-# Problem manifest — consumed by the provisioner and admin console.
+# Problem manifest — consumed by the packager (problems/package.py) and the portal's
+# problem index (registry.py). Only the fields below exist; anything else you add is
+# ignored by everything (schema trimmed 2026-07-30 — put interviewer
+# guidance in rubric.md, and declare Python dependencies in
+# environments/requirements.workspace.txt + regenerate requirements.lock).
 id: <track>-<slug>-<nnn>
 title: Human-readable title
-track: ml                      # ds | ml | llm | mle
-difficulty: medium             # easy | medium | hard
-duration_minutes: 90
-status: draft                  # draft | hidden | active | retired
+
+# Visibility baseline (the manifests ARE the registry): draft | hidden | active |
+# retired. active/draft are selectable in the session form; admins can Show/Hide on
+# top of this from the panel (problem_visibility.json overrides win).
+status: draft
 
 summary: >
   One-paragraph interviewer-facing summary of what this problem tests.
 
-signals:                       # what a strong performance demonstrates
-  - e.g. handling class imbalance deliberately
-  - e.g. sound train/validation methodology
-
-resources:
-  expected_peak_ram_gb: 2      # must fit the 8 GB instance budget
-  dataset_size_mb: 50          # materialized size of generated data
-
-environment:
-  requires_llm_proxy: false    # true → session gets a proxy key provisioned
-  extra_pip: []                # packages beyond the base image, if any
-  open_internet: false         # override session default (admin may veto)
-
-# Candidate-visible paths (everything else stays interviewer-only).
+# Candidate-visible paths (everything else stays interviewer-only — the packager
+# refuses solution/, rubric.md, data_raw/, answer keys, whatever the list says).
 candidate_paths:
   - problem.md
   - starter/
   - data/README.md
 
+# Omit `data:` entirely for problems with no dataset. The generator must be seeded
+# and reproducible (the seed lives in the script); committed data/dist/ wins over
+# regeneration when present.
 data:
-  generator: data/generate.py  # must be seeded & reproducible
-  seed: 20260901
-
-# Reserved for multi-stage simulation scenarios; single-stage problems omit this.
-# stages: []
+  generator: data/generate.py

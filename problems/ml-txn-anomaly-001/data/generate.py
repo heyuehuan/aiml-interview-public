@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-SEED = 20260901  # keep in sync with problem.yaml data.seed
+SEED = 20260901  # fixed: same seed -> same dataset for every candidate
 N_ROWS = 400_000
 START = "2025-11-01"
 DAYS = 181  # ~6 months

@@ -7,10 +7,11 @@ the platform can package into a candidate workspace.
 
 ```
 problems/
-├── registry.yaml           # index of all problems + visibility defaults
 ├── _template/              # copy this to start a new problem
 └── <problem-id>/           # e.g. ml-txn-anomaly-001
-    ├── problem.yaml        # manifest (metadata, resources, visibility)
+    ├── problem.yaml        # manifest — id/title/status/summary/candidate_paths/
+    │                       #   data.generator; the manifests ARE the problem index
+    │                       #
     ├── problem.md          # candidate-facing statement            [CANDIDATE]
     ├── starter/            # starter code/notebooks given as-is    [CANDIDATE]
     ├── data/
@@ -35,6 +36,7 @@ never leave this repo.
 | Classical ML | `ml` | tabular modeling, evaluation, imbalance, features |
 | LLM application | `llm` | RAG, agents, prompt/tool design against the proxy |
 | ML engineering | `mle` | debugging pipelines, performance, productionization |
+| General coding | `gen` | algorithms / data-structure thinking on realistic data |
 
 ## Dataset rules
 
