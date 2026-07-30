@@ -162,6 +162,8 @@ def _detail_nav(sid, active):
         theme.nav_item(f"/admin/sessions/{sid}/files", "Files", active == "files"),
         theme.nav_item(f"/admin/sessions/{sid}/answers", "Answers", active == "answers"),
         theme.nav_item(f"/admin/sessions/{sid}/transcript", "Transcript", active == "transcript"),
+        theme.nav_item(f"/admin/sessions/{sid}/events", "Events", active == "events"),
+        theme.nav_item(f"/admin/sessions/{sid}/snapshots", "Snapshots", active == "snapshots"),
     ])
 
 
@@ -1286,6 +1288,164 @@ def admin_transcript_page(who, s, data, source=None, query=None):
 </div></div>
 {entries_html}"""
     return _detail_page(f"Transcript — {s['candidate_name']}", body, who, s, "transcript")
+
+
+# --- audit review surface: events timeline + snapshot viewer ------
+def admin_events_page(who, s, data, event=None, query=None):
+    """Read-only timeline over events.jsonl — the transcript viewer's filter pattern
+    (dropdown + substring), newest first, Refresh re-reads the live stream."""
+    sid = esc(s["id"])
+    known = list(dict.fromkeys(list(data["events"]) + ([event] if event else [])))
+    opts = ['<option value="">All events</option>']
+    for name in known:
+        sel = " selected" if name == event else ""
+        opts.append(f'<option value="{esc(name)}"{sel}>{esc(name)}</option>')
+    shown, total = data["shown"], data["total"]
+    cap_note = f" (showing latest {shown})" if shown < total else ""
+    rows = ""
+    for e in data["entries"]:
+        detail = e.get("detail") or {}
+        detail_cell = (f'<code class="small">{esc(json.dumps(detail, ensure_ascii=False))}</code>'
+                       if detail else '<span class="muted">—</span>')
+        rows += (f'<tr><td class="mono small" style="white-space:nowrap">{esc(e.get("ts") or "?")}</td>'
+                 f'<td class="mono small">{esc(e.get("actor") or "?")}</td>'
+                 f'<td class="mono">{esc(e.get("event") or "?")}</td>'
+                 f'<td style="overflow-wrap:anywhere">{detail_cell}</td></tr>')
+    rows = rows or ('<tr><td colspan="4"><div class="blankslate">'
+                    'No events recorded for this session yet.</div></td></tr>')
+    body = f"""<div class="box" style="margin-bottom:16px"><div class="box-body">
+  <form method="get" action="/admin/sessions/{sid}/events" class="row" style="align-items:flex-end">
+    <div><label for="ev" style="margin-top:0">Event</label>
+      <select id="ev" name="event" style="width:auto;min-width:12rem">{"".join(opts)}</select></div>
+    <div style="flex:1;min-width:12rem"><label for="q" style="margin-top:0">Search</label>
+      <input type="text" id="q" name="q" value="{esc(query or "")}" placeholder="actor, event or detail contains…"></div>
+    <button type="submit" class="btn">Apply</button>
+    <a class="btn" href="/admin/sessions/{sid}/events">Clear</a>
+  </form>
+  <p class="muted small" style="margin:8px 0 0">{esc(f'{total} event{"s" if total != 1 else ""}{cap_note}')}
+    · newest first, read live from the append-only events.jsonl — Refresh re-reads.</p>
+</div></div>
+<div class="box"><table class="table">
+  <thead><tr><th>When (UTC)</th><th>Actor</th><th>Event</th><th>Detail</th></tr></thead>
+  <tbody>{rows}</tbody>
+</table></div>"""
+    return _detail_page(f"Events — {s['candidate_name']}", body, who, s, "events")
+
+
+def admin_snapshots_page(who, s, commits, counts, problem=None):
+    """Commit list from shadow.git, newest first — the 60 s workspace snapshots."""
+    sid = esc(s["id"])
+    warn = (f'<div class="flash flash-err" style="margin-bottom:16px">Could not read '
+            f'shadow.git: {esc(problem)}</div>') if problem else ""
+    rows = ""
+    for c in commits:
+        n = counts.get(c["sha"], 0)
+        href = f"/admin/sessions/{sid}/snapshots/{esc(c['sha'])}"
+        rows += (f'<tr><td class="mono small" style="white-space:nowrap">{esc(c["ts"] or "?")}</td>'
+                 f'<td><a class="mono" href="{href}">{esc(c["sha"][:10])}</a></td>'
+                 f'<td>{esc(c["message"])}</td>'
+                 f'<td style="text-align:right">{n} file{"s" if n != 1 else ""}</td></tr>')
+    rows = rows or ('<tr><td colspan="4"><div class="blankslate">No snapshots recorded '
+                    'yet — the agent commits the workspace every 60 s while a session '
+                    'is active and something changed.</div></td></tr>')
+    body = f"""{warn}<div class="box">
+  <div class="box-header"><h2>Workspace snapshots</h2>
+    <span class="muted small">{len(commits)} snapshot{"s" if len(commits) != 1 else ""} ·
+    read-only view of the append-only shadow.git stream</span></div>
+  <table class="table">
+    <thead><tr><th>When (UTC)</th><th>Commit</th><th>Message</th>
+      <th style="text-align:right">Changed</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+    return _detail_page(f"Snapshots — {s['candidate_name']}", body, who, s, "snapshots")
+
+
+_DIFF_STATUS = {"A": "added", "M": "modified", "D": "deleted"}
+
+
+def _diff_pre(lines):
+    """A unified diff as escaped, minimally colored monospace (no JS, no highlighter)."""
+    out = []
+    for ln in lines:
+        color = ""
+        if ln.startswith("+") and not ln.startswith("+++"):
+            color = ' style="color:var(--success, #1a7f37)"'
+        elif ln.startswith("-") and not ln.startswith("---"):
+            color = ' style="color:var(--danger, #cf222e)"'
+        out.append(f"<span{color}>{esc(ln)}</span>")
+    return ('<pre class="mono small" style="overflow-x:auto;margin:0;padding:12px;'
+            'line-height:1.45">' + "\n".join(out) + "</pre>")
+
+
+def admin_snapshot_page(who, s, commit, diffs):
+    """One snapshot's per-file diff against its parent."""
+    sid = esc(s["id"])
+    sha = esc(commit["sha"])
+    boxes = ""
+    for d in diffs:
+        label = _DIFF_STATUS.get(d["status"], d["status"])
+        view = (f'<a class="btn btn-sm" href="/admin/sessions/{sid}/snapshots/{sha}'
+                f'?file={urllib.parse.quote(d["path"])}">View file</a>') if d["in_commit"] else ""
+        if d["note"]:
+            content = f'<div class="box-body"><span class="muted">{esc(d["note"])}</span></div>'
+        else:
+            content = _diff_pre(d["lines"] or [])
+            if d["truncated"]:
+                content += ('<div class="box-body"><span class="muted small">diff truncated '
+                            'at 4000 lines — download the export bundle for the rest</span></div>')
+        boxes += f"""<div class="box" style="margin-bottom:16px">
+  <div class="box-header"><h2 class="mono" style="font-size:0.95rem">{esc(d["path"])}</h2>
+    <div class="row"><span class="label">{esc(label)}</span>{view}</div>
+  </div>{content}
+</div>"""
+    boxes = boxes or ('<div class="box"><div class="blankslate">Empty snapshot — '
+                      'no files changed.</div></div>')
+    parent = commit["parents"][0] if commit["parents"] else None
+    parent_link = (f'<a class="mono" href="/admin/sessions/{sid}/snapshots/{esc(parent)}">'
+                   f'{esc(parent[:10])}</a>') if parent else '<span class="muted">none (first snapshot)</span>'
+    body = f"""<div class="box" style="margin-bottom:16px"><div class="box-body">
+  <div class="row" style="justify-content:space-between">
+    <div><b class="mono">{sha[:10]}</b> · {esc(commit["message"])}</div>
+    <a class="btn btn-sm" href="/admin/sessions/{sid}/snapshots">← All snapshots</a>
+  </div>
+  <p class="muted small" style="margin:8px 0 0">{esc(commit["ts"] or "?")} ·
+    by {esc(commit["author"])} · parent {parent_link} ·
+    {len(diffs)} file{"s" if len(diffs) != 1 else ""} changed</p>
+</div></div>
+{boxes}"""
+    return _detail_page(f"Snapshot {commit['sha'][:10]} — {s['candidate_name']}",
+                        body, who, s, "snapshots")
+
+
+def admin_snapshot_file_page(who, s, commit, path, blob, *, binary=False,
+                             max_bytes=256 * 1024):
+    """One file's full content as it stood at this snapshot."""
+    sid = esc(s["id"])
+    sha = esc(commit["sha"])
+    if binary:
+        content = (f'<div class="box-body"><span class="muted">binary file '
+                   f'({len(blob)} bytes) — download the export bundle to inspect it</span></div>')
+    elif len(blob) > max_bytes:
+        text = blob[:max_bytes].decode("utf-8", "replace")
+        content = (f'<pre class="mono small" style="overflow-x:auto;margin:0;padding:12px">{esc(text)}</pre>'
+                   f'<div class="box-body"><span class="muted small">showing first '
+                   f'{max_bytes} of {len(blob)} bytes</span></div>')
+    else:
+        content = (f'<pre class="mono small" style="overflow-x:auto;margin:0;padding:12px">'
+                   f'{esc(blob.decode("utf-8", "replace"))}</pre>')
+    body = f"""<div class="box" style="margin-bottom:16px"><div class="box-body">
+  <div class="row" style="justify-content:space-between">
+    <div><b class="mono">{esc(path)}</b> <span class="muted">at</span>
+      <span class="mono">{sha[:10]}</span></div>
+    <a class="btn btn-sm" href="/admin/sessions/{sid}/snapshots/{sha}">← Snapshot</a>
+  </div>
+  <p class="muted small" style="margin:8px 0 0">{esc(commit["ts"] or "?")} · {len(blob)} bytes ·
+    read-only content from shadow.git</p>
+</div></div>
+<div class="box">{content}</div>"""
+    return _detail_page(f"{path} @ {commit['sha'][:10]} — {s['candidate_name']}",
+                        body, who, s, "snapshots")
 
 
 # --- candidate workspace file manager ---------------------------------------

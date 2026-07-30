@@ -286,6 +286,43 @@ def record_event(session_id, actor, event, detail=None):
         fh.write(line + "\n")
 
 
+def read_events(session_id, *, event=None, query=None, limit=500):
+    """Read a session's events.jsonl newest-first — the same tolerant,
+    read-only shape as read_transcript. ``event`` filters by event name; ``query`` is a
+    case-insensitive substring over actor + event + the detail JSON. The stream is
+    append-only and may be read mid-write; blank/partial lines are skipped.
+    Returns {entries, total, shown, events}."""
+    entries = []
+    try:
+        with open(events_path(session_id), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except ValueError:
+                    continue
+    except FileNotFoundError:
+        return {"entries": [], "total": 0, "shown": 0, "events": []}
+    names = sorted({e.get("event") or "?" for e in entries})
+    rows = entries
+    if event:
+        rows = [e for e in rows if (e.get("event") or "?") == event]
+    if query:
+        q = query.lower()
+        rows = [e for e in rows
+                if q in f'{e.get("actor") or ""}\n{e.get("event") or ""}\n'
+                        f'{json.dumps(e.get("detail") or {})}'.lower()]
+    total = len(rows)
+    rows = list(reversed(rows))[:max(1, int(limit))]
+    return {"entries": rows, "total": total, "shown": len(rows), "events": names}
+
+
+def shadow_git_path(session_id):
+    return os.path.join(DATA_DIR, "sessions", session_id, "shadow.git")
+
+
 # --- LLM transcript (written by the proxy; read-only here) ------------------
 def transcript_path(session_id):
     return os.path.join(DATA_DIR, "sessions", session_id, "llm_transcript.jsonl")

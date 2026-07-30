@@ -12,6 +12,7 @@ import os
 import re
 
 import db
+import gitread
 import integrations
 import model
 import registry
@@ -311,6 +312,100 @@ def review(req, sid):
         # deleted between page load and click — say which, rather than a bare 404.
         return Response.text("no review has been uploaded for this session", status=404)
     return Response.html(views.session_review(s, c))
+
+
+# --- audit review surface: events timeline + snapshot viewer ------
+# Both are READ-ONLY renderers over append-only streams (hard rule): nothing on
+# these routes writes events.jsonl or shadow.git.
+@router.route("GET", "/admin/sessions/<sid>/events")
+def events_view(req, sid):
+    """Session event timeline — every state transition, moderation release, MCQ change
+    and copy action from events.jsonl, newest first, with the transcript viewer's
+    filter pattern (event-type dropdown + substring search)."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    event = (req.query.get("event") or "").strip() or None
+    query = (req.query.get("q") or "").strip() or None
+    data = model.read_events(sid, event=event, query=query, limit=500)
+    return Response.html(views.admin_events_page(who, s, data, event=event, query=query))
+
+
+# A workspace file can be dataset-sized; never inline-render or diff more than this.
+SNAPSHOT_MAX_BLOB = 256 * 1024
+
+
+@router.route("GET", "/admin/sessions/<sid>/snapshots")
+def snapshots_view(req, sid):
+    """Commit list from the session's shadow.git — the 60 s workspace snapshots the agent
+    records. Read with the pure-stdlib gitread module."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    commits, counts, problem = [], {}, None
+    if os.path.isdir(model.shadow_git_path(sid)):  # absent = no snapshots yet, not an error
+        try:
+            repo = gitread.Repo(model.shadow_git_path(sid))
+            commits = repo.log(limit=500)
+            counts = {c["sha"]: len(repo.diff_summary(c["sha"])) for c in commits}
+        except gitread.GitReadError as exc:
+            problem = str(exc)
+    return Response.html(views.admin_snapshots_page(who, s, commits, counts, problem))
+
+
+@router.route("GET", "/admin/sessions/<sid>/snapshots/<sha>")
+def snapshot_view(req, sid, sha):
+    """One snapshot: per-file diff against its parent, or (?file=…) one file's full
+    content at that commit."""
+    who, redirect = _require(req)
+    if redirect:
+        return redirect
+    if _bad_sid(sid) or not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
+        return Response.not_found()
+    s = model.get_session(sid)
+    if not s:
+        return Response.not_found()
+    try:
+        repo = gitread.Repo(model.shadow_git_path(sid))
+        commit = repo.commit(sha)
+    except gitread.GitReadError:
+        return Response.not_found()
+
+    path = (req.query.get("file") or "").strip() or None
+    if path:
+        files = repo.commit_files(sha)
+        if path not in files:
+            return Response.not_found()
+        blob = repo.blob(files[path][0])
+        return Response.html(views.admin_snapshot_file_page(
+            who, s, commit, path, blob, binary=gitread.is_binary(blob),
+            max_bytes=SNAPSHOT_MAX_BLOB))
+
+    diffs = []
+    for status, fpath, old_sha, new_sha in repo.diff_summary(sha):
+        entry = {"status": status, "path": fpath, "lines": None, "note": None,
+                 "truncated": False, "in_commit": new_sha is not None}
+        old = repo.blob(old_sha) if old_sha else b""
+        new = repo.blob(new_sha) if new_sha else b""
+        if gitread.is_binary(old) or gitread.is_binary(new):
+            entry["note"] = f"binary file ({len(new) if new_sha else len(old)} bytes)"
+        elif max(len(old), len(new)) > SNAPSHOT_MAX_BLOB:
+            entry["note"] = (f"file too large to diff "
+                             f"({max(len(old), len(new))} bytes > {SNAPSHOT_MAX_BLOB})")
+        else:
+            entry["lines"], entry["truncated"] = gitread.unified_diff(old, new, fpath)
+        diffs.append(entry)
+    return Response.html(views.admin_snapshot_page(who, s, commit, diffs))
 
 
 # --- LLM transcript viewer --------------------------------------------------
