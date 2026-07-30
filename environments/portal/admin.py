@@ -222,7 +222,9 @@ def create(req):
             duration_minutes=int(f.get("duration_minutes") or 90),
             llm_budget_usd=float(f.get("llm_budget_usd") or 5),
             llm_models=req.getlist("llm_models") or None,
-            internet_access=f.get("internet_access", "1") == "1",
+            # Not a form field any more: nothing enforces restriction, so
+            # every session is recorded as what it actually gets — full egress.
+            internet_access=True,
             terms_text=(f.get("terms_text") or "").strip() or None,
             problem_ids=req.getlist("problem_ids"),
             actor=who,
@@ -681,7 +683,8 @@ def edit_save(req, sid):
     who, redirect = _require(req)
     if redirect:
         return redirect
-    if not model.get_session(sid):
+    s = model.get_session(sid)
+    if not s:
         return Response.not_found()
     f = req.form
     try:
@@ -693,7 +696,8 @@ def edit_save(req, sid):
             duration_minutes=int(f.get("duration_minutes") or 90),
             llm_budget_usd=float(f.get("llm_budget_usd") or 5),
             llm_models=req.getlist("llm_models") or None,
-            internet_access=f.get("internet_access", "1") == "1",
+            # Preserved, not editable: the flag is a record, not a control.
+            internet_access=s["internet_access"],
             terms_text=(f.get("terms_text") or "").strip() or None,
             problem_ids=req.getlist("problem_ids"),
             actor=who,
