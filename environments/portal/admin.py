@@ -386,7 +386,10 @@ def snapshot_view(req, sid, sha):
         files = repo.commit_files(sha)
         if path not in files:
             return Response.not_found()
-        blob = repo.blob(files[path][0])
+        try:
+            blob = repo.blob(files[path][0])
+        except gitread.GitReadError:
+            return Response.not_found()  # e.g. a gitlink: the object lives in the nested repo
         return Response.html(views.admin_snapshot_file_page(
             who, s, commit, path, blob, binary=gitread.is_binary(blob),
             max_bytes=SNAPSHOT_MAX_BLOB))
@@ -395,8 +398,18 @@ def snapshot_view(req, sid, sha):
     for status, fpath, old_sha, new_sha in repo.diff_summary(sha):
         entry = {"status": status, "path": fpath, "lines": None, "note": None,
                  "truncated": False, "in_commit": new_sha is not None}
-        old = repo.blob(old_sha) if old_sha else b""
-        new = repo.blob(new_sha) if new_sha else b""
+        try:
+            old = repo.blob(old_sha) if old_sha else b""
+            new = repo.blob(new_sha) if new_sha else b""
+        except gitread.GitReadError:
+            # A candidate-made nested repo becomes a gitlink entry: the tree names a
+            # commit that only exists inside the workspace's own .git, so there is no
+            # blob to show. Say so; never 500 the whole snapshot over one entry.
+            entry["note"] = ("nested repository link — its content is not captured by "
+                             "snapshots (the candidate ran git init/clone here)")
+            entry["in_commit"] = False
+            diffs.append(entry)
+            continue
         if gitread.is_binary(old) or gitread.is_binary(new):
             entry["note"] = f"binary file ({len(new) if new_sha else len(old)} bytes)"
         elif max(len(old), len(new)) > SNAPSHOT_MAX_BLOB:
