@@ -12,7 +12,7 @@ proxy that fronts it.
   could read unreleased problems off it. Only the proxy publishes a host port.
 - `Dockerfile.workspace` — python 3.12 + trimmed tier-1 ML stack + code-server +
   JupyterLab (one image, run as two services). Launched by `workspace/entrypoint.sh`
-  as a non-root per-session user. Package list: `../infra/images/base-image-spec.md`.
+  as a non-root per-session user. Package list: `../docs/base-image-spec.md`.
 - `requirements.workspace.txt` — the trimmed tier-1 pin list (unpinned for the sprint).
 - `Caddyfile` — routing + the `/api/authz` auth subrequest for `/ide` and `/jupyter`.
 - `portal/` — portal session service + admin panel (see `portal/README.md`).
