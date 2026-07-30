@@ -85,7 +85,6 @@ def _session_form_fields(problems, s=None):
     dur = s["duration_minutes"] if s else 90
     budget = f'{s["llm_budget_usd"]:g}' if s else "5"
     models = s["llm_models"] if s else ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
-    internet = s["internet_access"] if s else True
     terms = esc(s["terms_text"]) if (s and s["terms_text"]) else ""
     sel = s["problem_ids"] if s else []
     code_attr = f' value="{esc(s["access_code"])}"' if s else ' placeholder="auto"'
@@ -109,10 +108,9 @@ def _session_form_fields(problems, s=None):
         <input type="number" id="dm" name="duration_minutes" value="{dur}" min="5" max="600"></div>
       <div><label for="bg">LLM budget (USD)</label>
         <input type="number" id="bg" name="llm_budget_usd" value="{budget}" min="0" step="0.5"></div>
-      <div><label for="net">Internet access</label>
-        <select id="net" name="internet_access">
-          <option value="1"{' selected' if internet else ''}>Full (default)</option>
-          <option value="0"{' selected' if not internet else ''}>Restricted</option></select></div>
+      <div><label>Internet access</label>
+        <p class="muted small" style="margin:6px 0 0">Full for every session — per-session
+        restriction is not implemented, so there is no setting to set.</p></div>
     </div>
     <label>Models</label>
     <div class="row">
@@ -353,7 +351,8 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None,
         ("Duration", f"{s['duration_minutes']} min"),
         ("Starts / ends", f"{s['starts_at'] or '—'} → {s['ends_at'] or '—'}"),
         ("LLM", f"${budget:.2f} · {', '.join(s['llm_models'])}"),
-        ("Internet", "full" if s["internet_access"] else "restricted"),
+        ("Internet", "full (unrestricted)" if s["internet_access"]
+                     else "restricted (recorded, never enforced — egress was full)"),
         ("Terms accepted", s["terms_accepted_at"] or "not yet"),
     ]
     budget_banner = ""
