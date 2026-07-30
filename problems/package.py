@@ -65,11 +65,12 @@ def clean_scalar(val):
 
 
 def parse_manifest(path):
-    """Pull the few fields the packager needs from a problem.yaml: id, title, the
-    ``candidate_paths`` list, ``data.generator``, and the folded ``summary``. A
+    """Pull the few fields anything needs from a problem.yaml: id, title, status,
+    the ``candidate_paths`` list, ``data.generator``, and the folded ``summary``. A
     deliberately small parser — it understands top-level scalars, one block list,
     a one-level nested map (``data:``), and a folded ``summary: >`` block."""
-    man = {"id": None, "title": None, "summary": "", "candidate_paths": [], "generator": None}
+    man = {"id": None, "title": None, "status": None, "summary": "",
+           "candidate_paths": [], "generator": None}
     section = None  # None | "candidate_paths" | "data" | "summary"
     with open(path, encoding="utf-8") as fh:
         for raw in fh.read().splitlines():
@@ -95,6 +96,8 @@ def parse_manifest(path):
                     man["id"] = val
                 elif key == "title":
                     man["title"] = val
+                elif key == "status":
+                    man["status"] = val
                 continue
 
             if section == "candidate_paths" and stripped.startswith("- "):

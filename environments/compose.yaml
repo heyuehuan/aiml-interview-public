@@ -46,7 +46,9 @@ services:
       CONTROL_FILE: /control/active.json
       WORKSPACE_DIR: /workspace
       PROBLEMS_SEED_DIR: /problems_seed
-      PROBLEMS_REGISTRY: /srv/problems/registry.yaml
+      # Problem index = the manifests themselves: registry.py scans
+      # $PROBLEMS_ROOT/*/problem.yaml for id/title/status.
+      PROBLEMS_ROOT: /srv/problems
       PACKAGER_CWD: /srv
       # unillm: one shared master key. LLM_BASE_URL is the *candidate-facing* URL
       # baked into the workspace env (loopback forwarder → unillm). UNILLM_INTERNAL_URL

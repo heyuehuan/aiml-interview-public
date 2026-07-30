@@ -1,12 +1,11 @@
-"""Read the problem registry (problems/registry.yaml) for the admin session-create
-form and the candidate problems page. A tiny tolerant parser — we only need
-id/title/status per problem and don't want a YAML dependency (minimal
-deps).
+"""Read the problem index for the admin session-create form and the candidate
+problems page. The index IS the manifests: `registry.yaml` was collapsed into them — we scan `$PROBLEMS_ROOT/*/problem.yaml` for id/title/status
+with a tiny tolerant parser.
 
-Admin-controlled visibility: the registry's `status` is the baseline, but an admin can
-Show/Hide a problem from the panel. Those overrides persist to
-`$DATA_DIR/problem_visibility.json` (writable; the registry file is a read-only mount)
-and win over the baseline. Selectable (offered in the create form) = effective status
+Admin-controlled visibility: each manifest's `status` is the baseline, but an admin
+can Show/Hide a problem from the panel. Those overrides persist to
+`$DATA_DIR/problem_visibility.json` (writable; the problems mount is read-only) and
+win over the baseline. Selectable (offered in the create form) = effective status
 in {active, draft}.
 """
 from __future__ import annotations
@@ -18,13 +17,16 @@ import sys
 
 import mdrender
 
-REGISTRY_PATH = os.environ.get("PROBLEMS_REGISTRY", "/srv/problems/registry.yaml")
-PROBLEMS_ROOT = os.path.dirname(REGISTRY_PATH)
+# PROBLEMS_ROOT is the contract now; PROBLEMS_REGISTRY (a file path inside
+# that root) is honoured for back-compat with pre-collapse deployments and tests.
+_REGISTRY_COMPAT = os.environ.get("PROBLEMS_REGISTRY")
+PROBLEMS_ROOT = os.environ.get("PROBLEMS_ROOT") or (
+    os.path.dirname(_REGISTRY_COMPAT) if _REGISTRY_COMPAT else "/srv/problems")
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 VISIBILITY_PATH = os.path.join(DATA_DIR, "problem_visibility.json")
 SELECTABLE = {"active", "draft"}  # hidden/retired are not offered in the panel
 
-# The registry parser below and the packager's problem.yaml parser share how they
+# The manifest scanner below and the packager's problem.yaml parser share how they
 # de-comment/unquote a scalar. Reuse the packager's helper so the two agree; the
 # packager is a sibling package whose mount may not be importable at load time, so fall
 # back to a local copy rather than hard-depending on it.
@@ -36,33 +38,44 @@ except Exception:  # pragma: no cover - packager not importable in this layout
         return val.split(" #", 1)[0].strip().strip("\"'")
 
 
-def _parse_registry(path):
-    problems, cur, in_list = [], None, False
+def _manifest_head(path):
+    """Top-level `id`/`title`/`status` scalars from one problem.yaml. Indented lines
+    (nested blocks, folded summaries, list items) can't be top-level keys and are
+    skipped wholesale, so this stays correct however the rest of the file grows."""
+    out = {}
     with open(path, encoding="utf-8") as fh:
         for raw in fh:
             line = raw.rstrip("\n")
-            stripped = line.strip()
-            if stripped.startswith("#") or not stripped:
+            if not line.strip() or line[:1] in (" ", "\t") or line.startswith("#"):
                 continue
-            if stripped == "problems:":
-                in_list = True
-                continue
-            if not in_list:
-                continue
-            # A new top-level key ends the problems block.
-            if not line.startswith((" ", "\t")) and stripped.endswith(":"):
-                break
-            if stripped.startswith("- "):
-                if cur:
-                    problems.append(cur)
-                cur = {}
-                stripped = stripped[2:].strip()
-            if cur is not None and ":" in stripped:
-                key, _, val = stripped.partition(":")
-                cur[key.strip()] = _clean_scalar(val)
-        if cur:
-            problems.append(cur)
-    return [p for p in problems if "id" in p]
+            key, sep, val = line.partition(":")
+            if sep and key.strip() in ("id", "title", "status"):
+                out[key.strip()] = _clean_scalar(val)
+    return out
+
+
+def _scan_manifests(root):
+    """Every `<root>/<dir>/problem.yaml`, sorted by directory name for a stable form
+    order. `_template/` (underscore) and non-problem dirs are skipped; an unreadable
+    manifest skips that problem rather than taking the panel down."""
+    problems = []
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return []
+    for name in names:
+        if name.startswith(("_", ".")):
+            continue
+        path = os.path.join(root, name, "problem.yaml")
+        if not os.path.isfile(path):
+            continue
+        try:
+            head = _manifest_head(path)
+        except OSError:  # pragma: no cover - unreadable mount entry
+            continue
+        if head.get("id"):
+            problems.append(head)
+    return problems
 
 
 # --- admin visibility overrides ---------------------------------------------
@@ -90,15 +103,12 @@ def _effective_status(p, overrides):
     return overrides.get(p["id"], p.get("status", "draft"))
 
 
-def all_problems(path=None):
-    """Every registry problem with its effective (override-applied) status and a
-    `visible` flag — for the admin visibility panel."""
-    path = path or REGISTRY_PATH
-    if not os.path.exists(path):
-        return []
+def all_problems(root=None):
+    """Every problem (from the manifests) with its effective (override-applied)
+    status and a `visible` flag — for the admin visibility panel."""
     overrides = _load_overrides()
     out = []
-    for p in _parse_registry(path):
+    for p in _scan_manifests(root or PROBLEMS_ROOT):
         eff = _effective_status(p, overrides)
         out.append({"id": p["id"], "title": p.get("title", p["id"]),
                     "status": eff, "base_status": p.get("status", "draft"),
@@ -106,10 +116,10 @@ def all_problems(path=None):
     return out
 
 
-def load_problems(path=None):
+def load_problems(root=None):
     """Selectable problems for the session-create form (effective status active/draft)."""
     return [{"id": p["id"], "title": p["title"], "status": p["status"]}
-            for p in all_problems(path) if p["visible"]]
+            for p in all_problems(root) if p["visible"]]
 
 
 # --- per-problem metadata (title + summary) for the candidate page ----------
