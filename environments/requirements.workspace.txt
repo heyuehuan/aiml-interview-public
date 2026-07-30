@@ -1,7 +1,13 @@
 # workspace image — trimmed tier-1 stack.
-# Deliberately omits torch / tensorflow / spaCy / nltk / google-adk to keep the MVP
-# build fast. Add them post-MVP once build time is no longer the constraint.
-# Unpinned for the sprint; requirements.lock (uv pip compile) is a post-MVP follow-up.
+# Deliberately omits torch / tensorflow / spaCy / nltk / google-adk to keep the
+# build fast. Add them once build time is no longer the constraint.
+#
+# This file states intent; the image installs from requirements.lock so every
+# candidate gets the same versions. After ANY edit here, regenerate in
+# the same PR:
+#   uv pip compile requirements.workspace.txt -o requirements.lock \
+#       --universal --python-version 3.12 --no-annotate
+# and rebuild on deploy: docker compose up -d --build code-server jupyterlab
 numpy
 pandas
 scipy

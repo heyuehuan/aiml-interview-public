@@ -13,7 +13,7 @@ proxy that fronts it.
 - `Dockerfile.workspace` — python 3.12 + trimmed tier-1 ML stack + code-server +
   JupyterLab (one image, run as two services). Launched by `workspace/entrypoint.sh`
   as a non-root per-session user. Package list: `../docs/base-image-spec.md`.
-- `requirements.workspace.txt` — the trimmed tier-1 pin list (unpinned for the sprint).
+- `requirements.workspace.txt` — the trimmed tier-1 package list (human-edited intent); `requirements.lock` is what the image installs — regen the lock whenever the list changes.
 - `Caddyfile` — routing + the `/api/authz` auth subrequest for `/ide` and `/jupyter`.
 - `portal/` — portal session service + admin panel (see `portal/README.md`).
 - `workspace/entrypoint.sh` — provisions the non-root candidate user from the portal

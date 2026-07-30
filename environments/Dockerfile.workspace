@@ -14,9 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         bash gosu socat \
     && rm -rf /var/lib/apt/lists/*
 
-# Trimmed tier-1 Python stack.
-COPY requirements.workspace.txt /tmp/requirements.workspace.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.workspace.txt
+# Trimmed tier-1 Python stack, pinned: the lock
+# is what installs, so two candidates months apart get identical library versions.
+# requirements.workspace.txt is the human-edited intent — regen the lock when it changes.
+COPY requirements.lock /tmp/requirements.lock
+RUN pip install --no-cache-dir -r /tmp/requirements.lock
 
 # code-server (VS Code OSS server, MIT).
 RUN curl -fsSL https://code-server.dev/install.sh | sh
