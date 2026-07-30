@@ -1,6 +1,6 @@
 # candidate workspace image: python 3.12 + trimmed tier-1 ML stack + code-server
 # + JupyterLab. One image, two roles (code-server / jupyterlab) run from it in
-# compose, both mounting the same ~/workspace volume. See infra/images/base-image-spec.md.
+# compose, both mounting the same ~/workspace volume. See docs/base-image-spec.md.
 FROM python:3.12-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \

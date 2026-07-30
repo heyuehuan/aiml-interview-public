@@ -10,22 +10,20 @@ depth, not just a final answer.
 
 | Directory | Purpose |
 |---|---|
-| `problems/` | Curated interview problems: statements, datasets/generators, starter code, rubrics, reference solutions. **Current focus.** |
-| `environments/` | Candidate workspace definition: base image, code-server (VS Code OSS), JupyterLab, terminal, preinstalled ML stack. |
-| `infra/` | Deployment: IaC, image build, provisioning/teardown of per-candidate instances on AWS. |
-| `proxy/` | Managed LLM proxy — provisions scoped LLM access to candidates with per-session keys, budgets, and request logging. |
-| `ui/` | Candidate portal: access-code login, problem display, links into the workspace. |
-| `admin/` | Interviewer/admin console: manage access codes, choose which problems a session sees, monitor and moderate live sessions. |
-| `logging/` | Audit pipeline: workspace snapshots, shell history, Jupyter execution log, LLM usage — the formal auditable record. |
-| `docs/` | Architecture, roadmap, and design decisions. |
+| `problems/` | Curated interview problems: manifests (the problem index), statements, datasets/generators, starter code, rubrics, reference solutions, and the packager. |
+| `environments/` | The whole running stack: compose file, workspace image (code-server, JupyterLab, ML stack — pinned via `requirements.lock`), and `portal/` — the candidate portal **and** interviewer admin panel (session lifecycle, moderation, audit review). |
+| `proxy/` | Managed LLM proxy (unillm) — per-session keys, model allowlist, budget cutoff, full request transcript. |
+| `scripts/` | Session export/reset, the shadow.git snapshot agent, deploy. |
+| `config/` | Operator-editable content (handout wording, uploaded review reports), mounted read-only into portal/admin. |
+| `docs/` | Architecture and the workspace base-image spec. |
 
-## How a session works (target design)
+## How a session works
 
 One persistent server hosts everything; one candidate at a time, admin working
 concurrently. Full lifecycle in `docs/architecture.md`.
 
 1. **Admin** configures a session: problems, candidate display name, duration, LLM
-   models/budget, terms text, internet policy; issues an access code.
+   models/budget, terms text; issues an access code.
 2. **Candidate** enters the access code, accepts the terms, and lands on a personalized
    home page with tools: Problems, IDE (OSS Code), Jupyter, Terminal.
 3. **Logging** continuously records auditable checkpoints on-host: git snapshots of the
@@ -36,16 +34,9 @@ concurrently. Full lifecycle in `docs/architecture.md`.
 
 ## Status & roadmap
 
-- **Phase 1 (now): problems.** Problem format, registry, template, contribution guide.
-  Dataset production is deferred and handled separately. See `problems/README.md`.
-- **Phase 2: environment.** Workspace image + docker-compose (code-server, JupyterLab)
-  sized for small VM, with the between-candidates reset flow.
-- **Phase 3: proxy + logging.** unillm proxy over Vertex AI (Gemini), audit streams,
-  session export bundle.
-- **Phase 4: ui + admin.** Entry flow (access code → terms → home page), session
-  management, live moderation.
-- **Phase 5: simulation scenarios.** Multi-step, role-realistic simulations (on-call
-  triage, model debugging, ambiguous stakeholder asks).
+**Deployed** at `https://interview.example.com` (phases 1–4 of the original plan shipped;
+phase-5 simulation scenarios remain future work). New work starts from `CLAUDE.md` /
+`CONTRIBUTING.md`.
 
 (resolved items summarized at top) and reflected in `docs/architecture.md`.
 

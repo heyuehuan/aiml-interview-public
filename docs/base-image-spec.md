@@ -30,7 +30,7 @@ surveys, PyPI download rank, our problem tracks), constrained to CPU-only 8 GB.
 
 Non-Python: git, tmux, ripgrep, sqlite3, curl/jq, make, gcc (for pip builds).
 
-### Tier 2 — optional layers, enabled per problem via `problem.yaml: extra_pip`
+### Tier 2 — optional layers
 
 | Package | Why optional |
 |---|---|
