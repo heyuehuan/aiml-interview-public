@@ -30,6 +30,10 @@ candidate_data/
 # retrieved credentials — host-local secrets, NEVER committed (CLAUDE.md hard rule)
 cred/
 
+# rendered hiring reviews (PDF) — derived from the uploaded reviews, and
+# carries candidate names + verdicts. Host-local like its source, never committed.
+reports/
+
 # tooling
 .DS_Store
 .idea/
