@@ -393,7 +393,7 @@ def llm_spend_usd(session_id):
 
 
 # --- sessions ---------------------------------------------------------------
-DEFAULT_MODELS = ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
+DEFAULT_MODELS = ["gemini-3.7-flash", "gemini-3.1-flash-lite"]
 
 
 def _row_to_session(row):
