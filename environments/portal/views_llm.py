@@ -382,7 +382,7 @@ _SEND_ICON = (
 
 def _api_pane(session, api_key):
     models = session["llm_models"] or []
-    default_model = models[0] if models else "gemini-3.1-flash-lite"
+    default_model = models[0] if models else "gemini-3.5-flash-lite"
     model_labels = " ".join(f'<span class="label mono">{esc(m)}</span>' for m in models)
     base = "http://localhost:8081/v1"
     if api_key:

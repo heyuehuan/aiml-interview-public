@@ -29,7 +29,7 @@ UNILLM_MASTER_KEY = os.environ.get("UNILLM_MASTER_KEY", "sk-unillm-dev-change-me
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8081/v1")
 # Compose-internal URL the admin health check calls (candidates use localhost:8081).
 UNILLM_INTERNAL_URL = os.environ.get("UNILLM_INTERNAL_URL", "http://unillm:8081/v1")
-HEALTHCHECK_MODEL = "gemini-3.1-flash-lite"
+HEALTHCHECK_MODEL = "gemini-3.5-flash-lite"
 PROBLEMS_SEED_DIR = os.environ.get("PROBLEMS_SEED_DIR", "/problems_seed")
 PACKAGER_CWD = os.environ.get("PACKAGER_CWD", "/srv")
 SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR", "/srv/scripts")
