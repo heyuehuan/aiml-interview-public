@@ -26,14 +26,14 @@ model_list:
     pricing:
       input_per_1m: 0.75
       output_per_1m: 3.75
-  - model_name: gemini-3.1-flash-lite
+  - model_name: gemini-3.5-flash-lite
     unillm_params:
-      model: gemini-3.1-flash-lite
+      model: gemini-3.5-flash-lite
       project: your-gcp-project
       location: global
     pricing:
-      input_per_1m: 0.10
-      output_per_1m: 0.40
+      input_per_1m: 0.30
+      output_per_1m: 2.50
   - model_name: gemini-3.1-pro
     unillm_params:
       model: gemini-3.1-pro

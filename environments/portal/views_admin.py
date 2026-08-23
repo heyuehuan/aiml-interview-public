@@ -84,7 +84,7 @@ def _session_form_fields(problems, s=None):
     g = (lambda k: esc(s[k]) if s else "")
     dur = s["duration_minutes"] if s else 90
     budget = f'{s["llm_budget_usd"]:g}' if s else "5"
-    models = s["llm_models"] if s else ["gemini-3.7-flash", "gemini-3.1-flash-lite"]
+    models = s["llm_models"] if s else ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
     terms = esc(s["terms_text"]) if (s and s["terms_text"]) else ""
     sel = s["problem_ids"] if s else []
     code_attr = f' value="{esc(s["access_code"])}"' if s else ' placeholder="auto"'
@@ -117,7 +117,7 @@ def _session_form_fields(problems, s=None):
       <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
         value="gemini-3.7-flash"{ck('gemini-3.7-flash')}> gemini-3.7-flash</label>
       <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
-        value="gemini-3.1-flash-lite"{ck('gemini-3.1-flash-lite')}> gemini-3.1-flash-lite</label>
+        value="gemini-3.5-flash-lite"{ck('gemini-3.5-flash-lite')}> gemini-3.5-flash-lite</label>
       <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
         value="gemini-3.1-pro"{ck('gemini-3.1-pro')}> gemini-3.1-pro (opt-in)</label>
     </div>
@@ -326,7 +326,7 @@ def _llm_limits_form(sid, s):
         <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
           value="gemini-3.7-flash"{ck('gemini-3.7-flash')}> gemini-3.7-flash</label>
         <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
-          value="gemini-3.1-flash-lite"{ck('gemini-3.1-flash-lite')}> gemini-3.1-flash-lite</label>
+          value="gemini-3.5-flash-lite"{ck('gemini-3.5-flash-lite')}> gemini-3.5-flash-lite</label>
         <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
           value="gemini-3.1-pro"{ck('gemini-3.1-pro')}> gemini-3.1-pro (opt-in)</label>
         <button class="btn btn-primary" type="submit">Update limits</button>
