@@ -7,8 +7,9 @@
 # (aiplatform.googleapis.com), not regional hosts. unillm's vertex handler maps
 # location: global to the un-prefixed host.
 #
-# gemini-3.1-pro is the opt-in tier. Enable it only once the
-# project can reach it; the two flash models below are the working defaults.
+# gemini-3.1-pro is the opt-in tier. Gemini 3.1 Pro is preview-only on
+# Vertex, so the upstream id is `gemini-3.1-pro-preview` — the bare `gemini-3.1-pro`
+# is not served. Update the id when 3.1 Pro reaches GA.
 # pricing: USD per 1M tokens, used for the per-session dollar budget —
 # every completion is priced into llm_transcript.jsonl (cost_usd) and counted against
 # the session's llm_budget_usd (warn 100%, hard cutoff 120%). Operator-maintained:
@@ -36,7 +37,9 @@ model_list:
       output_per_1m: 2.50
   - model_name: gemini-3.1-pro
     unillm_params:
-      model: gemini-3.1-pro
+      # Upstream id must carry the -preview suffix; model_name stays bare so the
+      # admin form, DEFAULT_MODELS and stored session records are unaffected.
+      model: gemini-3.1-pro-preview
       project: your-gcp-project
       location: global
     pricing:
