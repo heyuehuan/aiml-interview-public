@@ -1,18 +1,6 @@
 """admin cookies must stop verifying after a password change or logout."""
-import os
-import sys
-import tempfile
-
-_TMP = tempfile.mkdtemp(prefix="portal-cookie-test-")
-os.environ.setdefault("PLATFORM_DB", os.path.join(_TMP, "platform.db"))
-os.environ.setdefault("DATA_DIR", _TMP)
-os.environ.setdefault("PORTAL_SECRET", "test-secret-not-default")
-os.environ.setdefault("APP_ENV", "dev")
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import db  # noqa: E402
-import model  # noqa: E402
+import db
+import model
 
 
 def _fresh_admin(username="root"):

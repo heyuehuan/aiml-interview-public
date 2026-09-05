@@ -4,25 +4,16 @@ CLI exactly the way the snapshot agent does (bare GIT_DIR + read-only work-tree)
 read them back with the pure-stdlib reader — loose first, then repacked, so the
 pack/delta path is exercised too.
 """
-import json
 import os
 import shutil
 import subprocess
-import sys
-import tempfile
 
 import pytest
 
-_TMP = tempfile.mkdtemp(prefix="portal-issue4-test-")
-os.environ["PLATFORM_DB"] = os.path.join(_TMP, "platform.db")
-os.environ["DATA_DIR"] = _TMP
-os.environ["PORTAL_SECRET"] = "test-secret"
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import db  # noqa: E402
-import gitread  # noqa: E402
-import model  # noqa: E402
-import views_admin  # noqa: E402
+import db
+import gitread
+import model
+import views_admin
 
 GIT = shutil.which("git")
 needs_git = pytest.mark.skipif(GIT is None, reason="git CLI not available")

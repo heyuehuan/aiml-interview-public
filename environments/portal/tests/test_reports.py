@@ -5,13 +5,8 @@ Per-session review matching and the print furniture are covered by test_reviews.
 file covers what the Reports section adds — and the invariant that keeps the two kinds
 from contaminating each other.
 """
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import reviews  # noqa: E402
-import views_admin  # noqa: E402
+import reviews
+import views_admin
 
 REVIEW = """---
 session_id: sess-1

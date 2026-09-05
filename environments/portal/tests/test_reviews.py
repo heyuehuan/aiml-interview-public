@@ -1,13 +1,9 @@
 """Uploaded AI reviews: matching a file to a session, and what the
 printed page must always say."""
-import os
 import re
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import reviews  # noqa: E402
-import views_admin  # noqa: E402
+import reviews
+import views_admin
 
 SESSION = {"id": "sess-1", "candidate_name": "Ada Lovelace"}
 

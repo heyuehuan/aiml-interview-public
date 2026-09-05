@@ -3,18 +3,10 @@ $PROBLEMS_ROOT/*/problem.yaml for id/title/status instead of parsing a separate
 registry.yaml (which drifted on every single problem before it was collapsed).
 """
 import os
-import sys
-import tempfile
 
 import pytest
 
-_TMP = tempfile.mkdtemp(prefix="problems-issue6-test-")
-os.environ["PLATFORM_DB"] = os.path.join(_TMP, "platform.db")
-os.environ["DATA_DIR"] = _TMP
-os.environ["PORTAL_SECRET"] = "test-secret"
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import registry  # noqa: E402
+import registry
 
 REPO_PROBLEMS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(

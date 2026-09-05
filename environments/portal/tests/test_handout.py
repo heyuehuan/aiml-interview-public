@@ -1,13 +1,9 @@
 """The handout's wording lives in config/handout.md — check the loader honours it and
 that session values reach the paper escaped."""
-import os
 import re
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import handout  # noqa: E402
-import views_admin  # noqa: E402
+import handout
+import views_admin
 
 SESSION = {
     "id": "s1",
