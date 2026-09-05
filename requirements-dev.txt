@@ -1,0 +1,13 @@
+# Test-only dependencies for the whole repo. Nothing here ships in an image:
+# environments/requirements.* build the workspace, proxy/requirements_unillm.txt the
+# proxy container.
+#
+#     python -m pip install -r requirements-dev.txt
+#
+# The portal and packager suites exercise stdlib-only code, but still need the runner.
+# proxy/tests import the proxy itself, so its runtime deps come along.
+pytest>=8.0
+# proxy/tests/test_transcript.py drives tee_stream() with `async def` tests marked
+# @pytest.mark.asyncio; without this plugin those three error out at collection.
+pytest-asyncio>=0.23
+-r proxy/requirements_unillm.txt
