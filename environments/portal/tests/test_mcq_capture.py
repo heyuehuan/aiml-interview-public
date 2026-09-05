@@ -5,20 +5,12 @@ wipe the only copy of a session's record.
 """
 import json
 import os
-import sys
-import tempfile
 
 import pytest
 
-_TMP = tempfile.mkdtemp(prefix="portal-issue1-test-")
-os.environ["PLATFORM_DB"] = os.path.join(_TMP, "platform.db")
-os.environ["DATA_DIR"] = _TMP
-os.environ["PORTAL_SECRET"] = "test-secret"
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import db  # noqa: E402
-import model  # noqa: E402
-import views_admin  # noqa: E402
+import db
+import model
+import views_admin
 
 
 @pytest.fixture(autouse=True)

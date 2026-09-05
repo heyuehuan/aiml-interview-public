@@ -1,10 +1,5 @@
 """the inline-link branch must not emit javascript:/data: hrefs."""
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import mdrender  # noqa: E402
+import mdrender
 
 
 def test_https_and_mailto_links_render():

@@ -1,20 +1,10 @@
 """Tests for the Gemini-page chat history
 and the generation-param whitelist the send endpoint applies."""
-import os
-import sys
-import tempfile
-
 import pytest
 
-_TMP = tempfile.mkdtemp(prefix="portal-test-")
-os.environ["PLATFORM_DB"] = os.path.join(_TMP, "platform.db")
-os.environ["DATA_DIR"] = _TMP
-os.environ["PORTAL_SECRET"] = "test-secret"
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import db  # noqa: E402
-import model  # noqa: E402
-from model import clean_llm_params as _clean_params  # noqa: E402
+import db
+import model
+from model import clean_llm_params as _clean_params
 
 
 @pytest.fixture(autouse=True)

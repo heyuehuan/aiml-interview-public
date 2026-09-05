@@ -6,21 +6,13 @@ events.jsonl). There is no submit step; the latest selection is the answer.
 """
 import json
 import os
-import sys
-import tempfile
 
 import pytest
 
-_TMP = tempfile.mkdtemp(prefix="portal-mcq-test-")
-os.environ["PLATFORM_DB"] = os.path.join(_TMP, "platform.db")
-os.environ["DATA_DIR"] = _TMP
-os.environ["PORTAL_SECRET"] = "test-secret"
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import db  # noqa: E402
-import model  # noqa: E402
-import registry  # noqa: E402
-import views  # noqa: E402
+import db
+import model
+import registry
+import views
 
 
 SID = "session-mcq"
@@ -39,7 +31,6 @@ def fresh_db():
     path = model.events_path(SID)
     if os.path.exists(path):
         os.remove(path)
-
 
 
 PID = "quiz-001"

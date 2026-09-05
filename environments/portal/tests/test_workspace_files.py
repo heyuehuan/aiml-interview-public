@@ -4,22 +4,16 @@ supplied path must never escape WORKSPACE_DIR (traversal or symlink), because th
 reaches os.path.join + the filesystem (the traversal class of bug).
 """
 import os
-import sys
-import tempfile
 
 import pytest
 
-# Point WORKSPACE_DIR (and the other dirs integrations reads at import) at throwaways
-# BEFORE importing the module — its module-level constants capture env at import time.
-_WS = tempfile.mkdtemp(prefix="ws-files-test-")
-_SEED = tempfile.mkdtemp(prefix="ws-files-seed-")
-os.environ["WORKSPACE_DIR"] = _WS
-os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="ws-files-data-")
-os.environ["PROBLEMS_SEED_DIR"] = _SEED
-os.environ.setdefault("PORTAL_SECRET", "test-secret")
+import integrations
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import integrations  # noqa: E402
+# conftest.py points integrations at these before it (or anything else) imports the
+# module, so the constants it froze at import time and the paths the tests build files
+# under are the same two directories.
+_WS = os.environ["WORKSPACE_DIR"]
+_SEED = os.environ["PROBLEMS_SEED_DIR"]
 
 
 @pytest.fixture(autouse=True)

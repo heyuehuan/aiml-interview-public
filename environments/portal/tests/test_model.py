@@ -2,21 +2,12 @@
 machine must have tests). Pure model layer — no HTTP. Run: `pytest` from this dir.
 """
 import os
-import sys
-import tempfile
 from datetime import timedelta
 
 import pytest
 
-# Point the model at a throwaway DB / data dir before importing it (env read at import).
-_TMP = tempfile.mkdtemp(prefix="portal-test-")
-os.environ["PLATFORM_DB"] = os.path.join(_TMP, "platform.db")
-os.environ["DATA_DIR"] = _TMP
-os.environ["PORTAL_SECRET"] = "test-secret"
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import db  # noqa: E402
-import model  # noqa: E402
+import db
+import model
 
 
 @pytest.fixture(autouse=True)

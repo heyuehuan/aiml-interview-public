@@ -3,26 +3,11 @@ create/edit forms stop offering Full/Restricted (a control-shaped label), new se
 are always recorded as full, edits preserve whatever a legacy row says, and the detail
 page states plainly that a recorded "restricted" was never enforced.
 """
-import os
-import sys
-import tempfile
-
 import pytest
 
-_TMP = tempfile.mkdtemp(prefix="portal-issue5-test-")
-os.environ["PLATFORM_DB"] = os.path.join(_TMP, "platform.db")
-os.environ["DATA_DIR"] = _TMP
-os.environ["PORTAL_SECRET"] = "test-secret"
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import db  # noqa: E402
-import model  # noqa: E402
-import views_admin  # noqa: E402
-
-# admin (and through it integrations) is deliberately NOT imported at module scope:
-# test modules import at collection time in filename order, and test_workspace_files
-# relies on being the first importer so integrations' dir constants freeze to ITS tmp
-# dirs. The fixture imports admin at run time, after every module-level import.
+import db
+import model
+import views_admin
 
 
 @pytest.fixture(autouse=True)
