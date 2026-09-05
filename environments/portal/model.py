@@ -70,6 +70,16 @@ def assert_boot_config():
         problems.append(
             "no usable admin credential: set ADMIN_PASSWORD_HASH, or an "
             "ADMIN_PASSWORD that is not 'admin' and is >= 8 characters")
+    # A hash that arrived mangled would seed an admin row nobody can log into, and
+    # seed_admins() is INSERT OR IGNORE, so fixing .env afterwards does not repair it.
+    # The usual cause is compose eating the '$' separators — catch it before first boot.
+    if pw_hash and not is_password_hash(pw_hash):
+        problems.append(
+            "ADMIN_PASSWORD_HASH is not a well-formed hash: expected "
+            "pbkdf2_sha256$<iters>$<salt>$<digest>, got "
+            f"{pw_hash.count('$')} '$' separator(s) and {len(pw_hash)} characters. "
+            "Docker Compose expands '$' in .env, which eats the separators — write "
+            "each one as '$$' in .env, or re-run hashpw.py, which prints it escaped")
     if problems:
         raise SystemExit(
             f"refusing to start (APP_ENV={APP_ENV}): " + "; ".join(problems)
@@ -129,6 +139,25 @@ def hash_password(password):
     salt = secrets.token_bytes(16)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERS, dklen=32)
     return f"pbkdf2_sha256${PBKDF2_ITERS}${salt.hex()}${dk.hex()}"
+
+
+def is_password_hash(stored):
+    """True if `stored` is a structurally valid hash of the scheme hash_password emits.
+
+    verify_password() fails closed on a malformed hash, which is right at login time but
+    silent at provision time — the operator only finds out when the correct password is
+    rejected. assert_boot_config() uses this to reject a mangled hash before it is seeded.
+    """
+    parts = str(stored).split("$")
+    if len(parts) != 4:
+        return False
+    scheme, iters, salt_hex, hash_hex = parts
+    if scheme != "pbkdf2_sha256" or not iters.isdigit() or int(iters) < 1:
+        return False
+    try:
+        return len(bytes.fromhex(salt_hex)) == 16 and len(bytes.fromhex(hash_hex)) == 32
+    except ValueError:
+        return False
 
 
 def verify_password(password, stored):

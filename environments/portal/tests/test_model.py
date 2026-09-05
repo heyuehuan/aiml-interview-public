@@ -70,6 +70,33 @@ def test_password_roundtrip():
     assert not model.verify_password("wrong", h)
 
 
+def test_is_password_hash_rejects_a_compose_mangled_hash():
+    h = model.hash_password("s3cret")
+    assert model.is_password_hash(h)
+    # What compose leaves behind when the '$' separators in .env are interpolated away.
+    scheme, iters, salt, _digest = h.split("$")
+    assert not model.is_password_hash(f"{scheme}${iters}${salt}")
+    assert not model.is_password_hash(scheme + iters + salt + _digest)
+    assert not model.is_password_hash("s3cret")        # plaintext pasted by mistake
+    assert not model.is_password_hash(f"bcrypt${iters}${salt}${_digest}")
+
+
+def test_boot_config_refuses_a_mangled_admin_hash(monkeypatch):
+    h = model.hash_password("s3cret")
+    monkeypatch.setattr(model, "APP_ENV", "prod")
+    monkeypatch.setattr(model, "SECRET", b"a-real-secret")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", h)
+    model.assert_boot_config()                          # well-formed: boots
+
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", "$".join(h.split("$")[:3]))
+    with pytest.raises(SystemExit) as e:
+        model.assert_boot_config()
+    assert "ADMIN_PASSWORD_HASH" in str(e.value) and "$$" in str(e.value)
+
+
 def test_cookie_sign_unsign():
     tok = model.sign("abc-123")
     assert model.unsign(tok) == "abc-123"
