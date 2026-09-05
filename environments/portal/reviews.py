@@ -55,6 +55,7 @@ import re
 
 import frontmatter
 import mdrender
+import theme
 
 # Mounted read-only at /srv/config on portal + admin only.
 REVIEWS_DIR = os.environ.get("REVIEWS_DIR", "/srv/config/reviews")
@@ -91,7 +92,7 @@ DEFAULTS = {
              "session logs",
     "model": "unspecified model",
     "generated": "",
-    "copyright": "© 2026 Technical Interview Platform — confidential hiring material",
+    "copyright": f"© 2026 {theme.BRAND} — confidential hiring material",
 }
 
 _NORM = re.compile(r"[^a-z0-9]+")
