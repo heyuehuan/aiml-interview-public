@@ -25,8 +25,22 @@ cp .env.example .env          # then set APP_ENV=prod and override EVERY credent
 mkdir -p secrets && cp /path/to/gcp-sa.json secrets/   # BEFORE the first `up`
 docker compose build          # slow: the workspace image pulls the full DS stack
 docker compose up -d
-docker compose ps             # all services healthy
+docker compose ps
 ```
+
+`docker compose ps` on a freshly booted host does **not** show seven healthy
+services, and should not:
+
+| Service | Status with no session running |
+|---|---|
+| `portal`, `admin` | healthy — this is what to check after a deploy |
+| `caddy`, `snapshot` | up, no health status (neither declares a healthcheck) |
+| `code-server`, `jupyterlab` | **unhealthy** — the entrypoint waits for an active session before starting the server, so the health endpoint is not listening yet |
+| `unillm` | healthy only once the Vertex key is in place; unhealthy without it |
+
+`code-server` and `jupyterlab` turn healthy about a minute after a session is
+activated, and go back to unhealthy after reset. Between candidates, unhealthy is
+the correct steady state for both.
 
 The Vertex key must be in place before the first `up`. Compose is configured with
 `create_host_path: false` for that mount, so a missing key aborts the `up` with a mount
@@ -101,7 +115,7 @@ INTERVIEW_HOST=user@your-host INTERVIEW_SSH_KEY=~/.ssh/your-key.pem make deploy
 `docker compose up -d --build`. Override the target, key and branch with
 `INTERVIEW_HOST`, `INTERVIEW_SSH_KEY` and `INTERVIEW_BRANCH`.
 
-Portal and admin bind-mount the app code (`./portal:/app`), so a pure-Python change can
+Portal and admin bind-mount the app code (`./portal:/app:ro`), so a pure-Python change can
 skip the rebuild with `docker compose restart portal admin` on the host; image or
 dependency changes need the `--build` that `make deploy` runs.
 
