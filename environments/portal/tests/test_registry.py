@@ -75,5 +75,6 @@ def test_real_repo_manifests_are_the_index():
     assert not os.path.exists(os.path.join(REPO_PROBLEMS, "registry.yaml"))
     got = {p["id"]: p["base_status"] for p in registry.all_problems(REPO_PROBLEMS)}
     assert got == {
+        "ml-eval-concepts-001": "active",
         "ml-txn-anomaly-001": "active",
     }
