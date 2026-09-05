@@ -92,7 +92,7 @@ portal never touches the docker socket.
 | `db.py` | sqlite schema + connection (`platform.db`) |
 | `model.py` | code gen, PBKDF2 passwords, signed cookies, state machine, events |
 | `integrations.py` | control file + packager / proxy keys / export-reset (best-effort) |
-| `registry.py` | reads `problems/registry.yaml` for the create form |
+| `registry.py` | scans `problems/*/problem.yaml` for the create form |
 | `views.py` | server-rendered HTML |
 | `portal.py` / `admin.py` | the two service entrypoints |
 | `hashpw.py` | `python hashpw.py <pw>` → `ADMIN_PASSWORD_HASH` |
