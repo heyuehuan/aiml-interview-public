@@ -101,15 +101,27 @@ if [ "$TOOL" = "code-server" ]; then
          --bind-addr 0.0.0.0:8443 "$HOME_DIR/workspace" &
 else
   log "launching JupyterLab as $USER_NAME"
-  # allow_origin defaults to '*' for local dev (candidate reaches Jupyter through
-  # caddy same-origin). In a real deployment set WORKSPACE_ALLOW_ORIGIN to the interview
-  # origin (e.g. https://interview.example.com) so an unrelated site the candidate
-  # visits can't drive their notebook. Auth still rests on caddy forward_auth (empty
-  # token by design — the session gate lives at the proxy), and xsrf stays disabled
-  # because the /jupyter prefix rewrite breaks Jupyter's built-in xsrf cookie check;
-  # the origin restriction is what backstops it. This is candidate-attacks-self only —
-  # one candidate at a time, no cross-tenant reach.
-  ALLOW_ORIGIN="${WORKSPACE_ALLOW_ORIGIN:-*}"
+  # Which origins may drive the candidate's notebook. Auth rests on caddy forward_auth
+  # (empty token by design — the session gate lives at the proxy), and xsrf stays
+  # disabled because the /jupyter prefix rewrite breaks Jupyter's built-in xsrf cookie
+  # check; the origin restriction is what backstops it, so an unrelated site the
+  # candidate visits can't drive their notebook. Candidate-attacks-self only — one
+  # candidate at a time, no cross-tenant reach.
+  #
+  # Order: explicit WORKSPACE_ALLOW_ORIGIN, else the origin of PORTAL_PUBLIC_URL, else
+  # '*'. Deriving it means a deployment that sets its public URL is restricted without
+  # having to know a second variable exists; '*' survives only for local dev, and says
+  # so in the log, because a silent '*' in prod is the whole problem.
+  ALLOW_ORIGIN="${WORKSPACE_ALLOW_ORIGIN:-}"
+  if [ -z "$ALLOW_ORIGIN" ] && [ -n "${PORTAL_PUBLIC_URL:-}" ]; then
+    # scheme://host[:port] — strip any path, query or trailing slash.
+    ALLOW_ORIGIN="$(printf '%s' "$PORTAL_PUBLIC_URL" | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]+).*#\1#')"
+    log "allow_origin derived from PORTAL_PUBLIC_URL: $ALLOW_ORIGIN"
+  fi
+  if [ -z "$ALLOW_ORIGIN" ]; then
+    ALLOW_ORIGIN="*"
+    log "WARNING: allow_origin is '*' — set PORTAL_PUBLIC_URL (or WORKSPACE_ALLOW_ORIGIN) for any non-local deployment"
+  fi
   gosu "$USER_NAME" env HOME="$HOME_DIR" SESSION_ID="$SID" \
        LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
        OPENAI_BASE_URL="$LLM_BASE_URL" OPENAI_API_KEY="$LLM_API_KEY" \

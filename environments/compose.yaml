@@ -211,9 +211,12 @@ services:
       WORKSPACE_TOOL: jupyter
       CONTROL_FILE: /control/active.json
       WORKSPACE_DIR: /data/workspace
-      # set to the interview origin in prod so an unrelated site can't drive the
-      # candidate's notebook; '*' is the dev default (candidate reaches it same-origin).
-      WORKSPACE_ALLOW_ORIGIN: ${WORKSPACE_ALLOW_ORIGIN:-*}
+      # Which origins may drive the candidate's notebook. Left unset, the entrypoint
+      # derives it from PORTAL_PUBLIC_URL, so a deployment that sets its public URL —
+      # every prod deployment — gets a real restriction without a second variable to
+      # remember. '*' only remains the fallback when neither is set, i.e. local dev.
+      WORKSPACE_ALLOW_ORIGIN: ${WORKSPACE_ALLOW_ORIGIN:-}
+      PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-}
     # NO problems_seed mount — see code-server above (candidate-reachable container).
     volumes:
       - workspace:/data/workspace
