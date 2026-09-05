@@ -4,15 +4,17 @@ Planning-stage document: shapes and contracts, not implementation.
 
 ## Deployment model
 
-**One persistent server** (small VM — 2 vCPU, 8 GB, RHEL8-family OS) hosts the
-entire platform. **One candidate at a time**; between candidates the workspace is
-reset and the session's artifacts are exported. The **admin console runs concurrently**
-on the same host so the interviewer can moderate a live session.
+**One persistent server** (small VM — 2 vCPU, 8 GB, any Linux with Docker CE and the
+compose plugin; tested on Ubuntu) hosts the entire platform. **One candidate at a
+time**; between candidates the workspace is reset and the session's artifacts are
+exported. The **admin console runs concurrently** on the same host so the interviewer
+can moderate a live session — it is the same application as the candidate portal
+(`environments/portal/`), served on its own port and its own compose service.
 
 ```
 ┌────────────────────────── single small VM ──────────────────────────┐
 │                                                                                   │
-│  ┌ Reverse proxy / portal (ui/) ┐        ┌ Admin console (admin/) ┐               │
+│  ┌ Candidate portal (portal/) ──┐        ┌ Admin console (portal/)┐               │
 │  │ access code → terms → home   │        │ sessions · codes ·     │◄── interviewer│
 │  │ page (Problems·IDE·Jupyter·  │        │ hints · moderation ·   │    (admin acct)│
 │  │ Terminal)                    │        │ audit review           │               │
@@ -26,7 +28,7 @@ on the same host so the interviewer can moderate a live session.
 │          │ LLM calls (session key)                │ audit streams                 │
 │  ┌───────▼────────────┐                  ┌────────▼───────────────┐               │
 │  │ LLM proxy (proxy/) │──transcripts────►│ Local audit store      │               │
-│  │ unillm · provider  │                  │ (logging/): shadow git  │               │
+│  │ unillm · provider  │                  │ (scripts/): shadow git  │               │
 │  │ key never exposed  │                  │ + append-only logs      │               │
 │  └───────┬────────────┘                  │ → export bundle at end  │               │
 │          │                               └────────────────────────┘               │
@@ -56,8 +58,13 @@ configure → issue code → candidate entry → live session → close → expo
    and the workspace copy — they are the problem package's own bytes, re-created by
    packaging the problem, and they otherwise dominate the archive; `MANIFEST.txt` names
    what was omitted. Downloaded / archived by the admin.
-6. **Reset:** workspace containers and volumes wiped, session key revoked, host ready
-   for the next candidate.
+6. **Reset:** the contents of the workspace volume are wiped
+   (`scripts/reset_workspace.sh`, which refuses to run until an export bundle exists),
+   and clearing the control file is what revokes the session key — unillm validates a
+   candidate key against the live control file, so it stops working even for a candidate
+   who saved it. The containers and the volumes themselves stay: the workspace
+   containers see the session go away, stop their tool and wait for the next one. Host
+   ready for the next candidate.
 
 ### What the audit streams actually contain
 
