@@ -1,40 +1,46 @@
 # Contributing
 
-How collaboration is orchestrated in this repo — for humans and code agents alike.
+How work is organised in this repo — for humans and code agents alike.
 (Problem authoring specifically: `problems/CONTRIBUTING.md`.)
 
 ## Orientation
 
-every other planning doc.
+Read, in order: `README.md` → `docs/architecture.md` → the README of the area you are
+changing (`environments/`, `environments/portal/`, `problems/`, `proxy/`).
 
-## The workstream model
+## Areas
 
-- **Claim before you build:** set the ws file's `Status:` header to
-  `in_progress — <who> — <UTC timestamp>`. One owner per workstream at a time;
-  if it's claimed, pick another or coordinate in that file.
-- **Contracts before code:** any change to routes, ports, env vars, schemas, or
-  Never adapt silently to a contract violation — fix the contract or flag it.
-- **Stay in lane:** edit other workstreams' directories only via an agreed contract
-  change or an explicit handoff note in their ws file.
+- `environments/` — the compose stack, the workspace image, and `portal/` (candidate
+  portal + admin panel). The portal is server-rendered Python with no frontend build.
+- `problems/` — problem content and the packager that enforces candidate visibility.
+- `proxy/` — the vendored LLM proxy and its local patches.
+- `scripts/` — host-side operations (export, reset, snapshot agent, deploy).
+
+Routes, ports, env vars and the session schema are the integration surface between
+these areas. Changing one is a documented change (update the area README and
+`environments/.env.example` in the same commit), never a silent adaptation.
 
 ## Branch & commit conventions
 
-  go straight to `main`.
-- Small, frequently-merged PRs — during the sprint, merge to `main` as soon as your
-  ws acceptance criteria for that slice pass; long-lived branches are how a 12-hour
-  integration fails.
-  applicable.
-- Update your ws checklist (with commit hash) in the same push.
+- Branches: `<area>/<short-slug>` (e.g. `portal/access-code-auth`); docs-only changes
+  may go straight to `main`.
+- Small, frequently-merged changes. Long-lived branches are how integration fails.
+- Commit messages: imperative summary line, prefixed with the area (`portal:`,
+  `problems:`, `proxy:`, `docs:`) when applicable.
 
 ## Definition of done (any slice)
 
-1. Meets the acceptance criteria in the ws file (tick them, don't reinterpret them).
-2. Respects every hard rule in `CLAUDE.md` (visibility contract, secrets, append-only
+1. Respects every hard rule in `CLAUDE.md` (visibility contract, secrets, append-only
    audit) — these are release-blocking, not advisory.
-3. Runs inside the compose stack on 8 GB — "works on my machine" outside compose
+2. Runs inside the compose stack on 8 GB — "works on my machine" outside compose
    doesn't count.
-4. Docs truthful: if you diverged from a planning doc, update it in the same PR.
-5. ws file status updated; blockers written down, not carried in your head.
+3. Docs truthful: if you diverged from a doc, update it in the same change.
+4. Tests pass:
+
+   ```bash
+   python -m pytest environments/portal/tests problems/tests   # stdlib-only
+   python -m pytest proxy/tests                                  # needs proxy/requirements_unillm.txt
+   ```
 
 ## Requirements baseline
 
