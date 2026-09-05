@@ -275,6 +275,23 @@ def test_update_session_only_before_activation():
         model.update_session(s["id"], **_edit_kwargs())  # active -> not editable
 
 
+@pytest.mark.parametrize("bad", ["", "   ", "root", "Candidate", "1st", "has space",
+                                 "toolong" * 6, "candidate;rm -rf /"])
+def test_workspace_user_is_validated_server_side(bad):
+    """The admin form's `required` + `pattern` are browser-side only; a hand-rolled POST
+    got an empty workspace_user all the way into the control file, and the workspace then
+    ran as its own fallback user with no trace of the mismatch."""
+    with pytest.raises(ValueError, match="workspace user"):
+        _new(workspace_user=bad)
+    s = _new(access_code="ABCDEF")
+    with pytest.raises(ValueError, match="workspace user"):
+        model.update_session(s["id"], **_edit_kwargs(workspace_user=bad))
+
+
+def test_workspace_user_accepts_a_normal_login_and_strips_it():
+    assert _new(workspace_user="  candidate_2  ")["workspace_user"] == "candidate_2"
+
+
 def test_update_session_code_clash_rejected():
     a = _new(access_code="AAAAAA")
     _new(access_code="BBBBBB")

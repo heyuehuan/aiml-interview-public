@@ -84,6 +84,11 @@ injected session env (`LLM_*`, `OPENAI_*`, `SESSION_ID`), and launches code-serv
 JupyterLab **as that user** via `gosu`. No session active ⇒ tools stay locked. The
 portal never touches the docker socket.
 
+The name is validated where it is stored, not just in the form: a Linux login name
+(`[a-z_][a-z0-9_-]{0,31}`) and never `root`, so a hand-rolled POST cannot seed an empty
+or hostile one. `entrypoint.sh` reuses an existing login rather than creating one, and
+refuses to start at all if that login is a system account (uid < 1000).
+
 ## Files
 
 | File | Role |
