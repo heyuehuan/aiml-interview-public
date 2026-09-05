@@ -35,11 +35,11 @@ _REPO_FILE = os.path.join(
     "config", "handout.md")
 
 DEFAULTS = {
-    "title": "Technical Interview Platform",
+    "title": theme.BRAND,
     "subtitle": "Candidate information sheet",
     "url_label": "Go to",
     "code_label": "Access code",
-    "copyright": "© 2026 Technical Interview Platform",
+    "copyright": f"© 2026 {theme.BRAND}",
     "notice": "",
 }
 

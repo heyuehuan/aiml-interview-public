@@ -22,11 +22,11 @@
 # Keep it to one page — nothing here paginates for you. Anyone who can read this file
 # can change what a candidate is told, so treat it as reviewed content, not scratch.
 
-title: Technical Interview Platform
+# title and copyright default to PLATFORM_NAME (environments/.env); set them here to
+# override for this file only.
 subtitle: Candidate Information Sheet
 url_label: Go to
 code_label: ACCESS CODE
-copyright: © 2026 Technical Interview Platform
 notice: |
   Please CLOSE all pages after the interview concludes,
   and do not take this paper.
