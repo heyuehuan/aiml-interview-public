@@ -6,7 +6,9 @@ proxy that fronts it.
 ## What's here
 
 - `compose.yaml` — the stack: `caddy` (reverse proxy), `code-server`, `jupyterlab`,
-  `portal` (:8000) + `admin` (:8001). Shared `workspace` volume; the `control` volume
+  `portal` (:8000) + `admin` (:8001), `snapshot`, and — only with `COMPOSE_PROFILES=llm`
+  in `.env` — `unillm` (the LLM proxy; see `../proxy/README.md`). Shared `workspace`
+  volume; the `control` volume
   carries the live session to the tools. `problems_seed` is mounted into portal/admin
   only — never into the candidate-reachable `code-server`/`jupyterlab`, where a shell
   could read unreleased problems off it. Only the proxy publishes a host port.

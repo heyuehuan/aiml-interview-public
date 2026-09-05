@@ -78,19 +78,29 @@ find "$WORKDIR" -mindepth 1 \
      -exec chown -h "$USER_NAME:$USER_NAME" {} +
 chown -R "$USER_NAME:$USER_NAME" "$HOME_DIR"
 
-export HOME="$HOME_DIR" SESSION_ID="$SID" \
-       LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
-       OPENAI_BASE_URL="$LLM_BASE_URL" OPENAI_API_KEY="$LLM_API_KEY"
+export HOME="$HOME_DIR" SESSION_ID="$SID"
 
-# make `localhost:8081` reach the unillm proxy from inside this container, so the
-# home-page Gemini examples (and the injected LLM_BASE_URL=http://localhost:8081/v1) work
-# verbatim. unillm is on the compose network as unillm:8081; forward loopback → there.
-# Prod is no different: unillm's host port is loopback-only and the candidate never
-# leaves this container to reach it. socat runs for the container's lifetime.
-UNILLM_UPSTREAM="${UNILLM_UPSTREAM:-unillm:8081}"
-if ! pgrep -f "TCP-LISTEN:8081" >/dev/null 2>&1; then
-  log "forwarding localhost:8081 -> $UNILLM_UPSTREAM (unillm)"
-  socat TCP-LISTEN:8081,fork,reuseaddr,bind=127.0.0.1 "TCP:$UNILLM_UPSTREAM" &
+# Gemini access is per session: the portal publishes a key only for a session that has
+# it (and only while the instance runs the LLM proxy at all). No key means no LLM_*/
+# OPENAI_* env and no loopback forwarder — the candidate's tools see nothing to call.
+if [ -n "$LLM_API_KEY" ]; then
+  export LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
+         OPENAI_BASE_URL="$LLM_BASE_URL" OPENAI_API_KEY="$LLM_API_KEY"
+  # make `localhost:8081` reach the unillm proxy from inside this container, so the
+  # home-page Gemini examples (and the injected LLM_BASE_URL=http://localhost:8081/v1)
+  # work verbatim. unillm is on the compose network as unillm:8081; forward loopback →
+  # there. Prod is no different: unillm's host port is loopback-only and the candidate
+  # never leaves this container to reach it. socat runs for the container's lifetime.
+  UNILLM_UPSTREAM="${UNILLM_UPSTREAM:-unillm:8081}"
+  if ! pgrep -f "TCP-LISTEN:8081" >/dev/null 2>&1; then
+    log "forwarding localhost:8081 -> $UNILLM_UPSTREAM (unillm)"
+    socat TCP-LISTEN:8081,fork,reuseaddr,bind=127.0.0.1 "TCP:$UNILLM_UPSTREAM" &
+  fi
+else
+  log "session has no Gemini access: no LLM env exported, no loopback forwarder"
+  # A forwarder left over from an earlier session in this container would answer on
+  # localhost:8081 with unillm's 401s; close the port so there is nothing to probe.
+  pkill -f "TCP-LISTEN:8081" >/dev/null 2>&1 || true
 fi
 
 if [ "$TOOL" = "code-server" ]; then

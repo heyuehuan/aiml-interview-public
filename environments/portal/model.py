@@ -29,6 +29,21 @@ SECRET = os.environ.get("PORTAL_SECRET", DEFAULT_SECRET).encode()
 # The unillm key shipped in .env.example. Public, like the cookie secret above, and it
 # mints every session key — so it gets the same treatment outside dev.
 DEFAULT_UNILLM_MASTER_KEY = "sk-unillm-dev-change-me"
+
+
+def _llm_enabled_from_env(raw):
+    """LLM_ENABLED is the instance-wide Gemini switch. compose passes COMPOSE_PROFILES
+    through as-is, so `COMPOSE_PROFILES=llm` in .env (which is also what starts the
+    unillm service) is the single thing an operator sets; the usual truthy words work
+    for running the app outside compose. Unset means on, so a bare checkout behaves as
+    it always did."""
+    if raw is None:
+        return True
+    tokens = {t.strip().lower() for t in raw.split(",")}
+    return bool(tokens & {"1", "true", "yes", "on", "llm"})
+
+
+LLM_ENABLED = _llm_enabled_from_env(os.environ.get("LLM_ENABLED"))
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 GRACE_MINUTES = int(os.environ.get("CODE_GRACE_MINUTES", "60"))
 COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", str(12 * 3600)))
@@ -64,10 +79,12 @@ def assert_boot_config():
     problems = []
     if SECRET in (b"", DEFAULT_SECRET.encode()):
         problems.append("PORTAL_SECRET is unset or still the public dev default")
-    # compose already refuses to start when this is unset (${UNILLM_MASTER_KEY:?...}),
-    # but presence is not the interesting property: the dev value is in .env.example.
-    if os.environ.get("UNILLM_MASTER_KEY", "") == DEFAULT_UNILLM_MASTER_KEY:
-        problems.append("UNILLM_MASTER_KEY is still the public dev default")
+    # Only meaningful while the LLM proxy runs: with LLM support off there is no
+    # unillm to authenticate to, so an unset key is the expected state. When it is on,
+    # presence is not the interesting property: the dev value is in .env.example.
+    if LLM_ENABLED and os.environ.get("UNILLM_MASTER_KEY", "") in ("", DEFAULT_UNILLM_MASTER_KEY):
+        problems.append("UNILLM_MASTER_KEY is unset or still the public dev default "
+                        "(LLM support is on — COMPOSE_PROFILES includes llm)")
     # admin/admin is baked into every checkout of this repo. Require a real
     # credential at provision time — either a hash, or a non-default password of
     # useful length. (seed_admins is INSERT OR IGNORE, so an already-seeded DB keeps
@@ -468,8 +485,16 @@ def _row_to_session(row):
     d = dict(row)
     d["problem_ids"] = json.loads(d.get("problem_ids") or "[]")
     d["llm_models"] = json.loads(d.get("llm_models") or "[]")
+    d["llm_enabled"] = bool(d.get("llm_enabled", 1))
     d["internet_access"] = bool(d.get("internet_access"))
     return d
+
+
+def session_llm_enabled(session):
+    """Whether this session gets Gemini: the instance switch (LLM_ENABLED) AND the
+    session's own flag. Every LLM surface — nav item, home tile, /llm page and chat
+    API, the key in the control file, the handout bullet — keys off this one answer."""
+    return bool(LLM_ENABLED and session and session.get("llm_enabled", True))
 
 
 def get_session(session_id):
@@ -492,8 +517,8 @@ def list_sessions():
 
 
 def create_session(*, candidate_name, workspace_user, problem_ids=None, duration_minutes=90,
-                   llm_budget_usd=5.0, llm_models=None, internet_access=True,
-                   terms_text=None, access_code=None, actor="admin"):
+                   llm_budget_usd=5.0, llm_models=None, llm_enabled=True,
+                   internet_access=True, terms_text=None, access_code=None, actor="admin"):
     workspace_user = _checked_workspace_user(workspace_user)
     con = db.connect()
     try:
@@ -510,14 +535,14 @@ def create_session(*, candidate_name, workspace_user, problem_ids=None, duration
         con.execute(
             """INSERT INTO sessions
                (id, access_code, candidate_name, workspace_user, problem_ids, state,
-                terms_text, duration_minutes, llm_budget_usd, llm_models,
+                terms_text, duration_minutes, llm_budget_usd, llm_models, llm_enabled,
                 internet_access, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 sid, code, candidate_name.strip(), workspace_user,
                 json.dumps(problem_ids or []), "created", terms_text,
                 int(duration_minutes), float(llm_budget_usd),
-                json.dumps(llm_models or DEFAULT_MODELS),
+                json.dumps(llm_models or DEFAULT_MODELS), 1 if llm_enabled else 0,
                 1 if internet_access else 0, now_iso(),
             ),
         )
@@ -535,7 +560,7 @@ EDITABLE_STATES = {"created"}  # once activated, the workspace is already provis
 
 def update_session(session_id, *, candidate_name, workspace_user, access_code,
                    duration_minutes, llm_budget_usd, llm_models, internet_access,
-                   terms_text, problem_ids, actor="admin"):
+                   terms_text, problem_ids, llm_enabled=True, actor="admin"):
     s = get_session(session_id)
     if s is None:
         raise ValueError("no such session")
@@ -555,11 +580,12 @@ def update_session(session_id, *, candidate_name, workspace_user, access_code,
             raise ValueError(f"access code {code} is already in use by a live session")
         con.execute(
             """UPDATE sessions SET candidate_name=?, workspace_user=?, access_code=?,
-               duration_minutes=?, llm_budget_usd=?, llm_models=?, internet_access=?,
-               terms_text=?, problem_ids=? WHERE id=?""",
+               duration_minutes=?, llm_budget_usd=?, llm_models=?, llm_enabled=?,
+               internet_access=?, terms_text=?, problem_ids=? WHERE id=?""",
             (candidate_name.strip(), workspace_user, code, int(duration_minutes),
              float(llm_budget_usd), json.dumps(llm_models or DEFAULT_MODELS),
-             1 if internet_access else 0, terms_text, json.dumps(problem_ids or []), session_id),
+             1 if llm_enabled else 0, 1 if internet_access else 0, terms_text,
+             json.dumps(problem_ids or []), session_id),
         )
         con.commit()
     finally:
@@ -578,6 +604,8 @@ def update_llm_limits(session_id, *, llm_budget_usd, llm_models, actor="admin"):
         raise ValueError("no such session")
     if s["state"] not in {"created", "active"}:
         raise ValueError("LLM limits can only be changed on a created or active session")
+    if not session_llm_enabled(s):
+        raise ValueError("this session has no Gemini access — there are no limits to change")
     budget = float(llm_budget_usd)
     if budget < 0:
         raise ValueError("LLM budget must be ≥ 0")

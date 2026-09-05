@@ -34,7 +34,8 @@ can moderate a live session — it is the same application as the candidate port
 │          │                               └────────────────────────┘               │
 └──────────┼────────────────────────────────────────────────────────────────────────┘
            ▼
-   Vertex AI (Gemini)   ← only external dependency in steady state
+   Vertex AI (Gemini)   ← only external dependency in steady state; optional
+                          (LLM support is a compose profile, off by default)
 ```
 
 ## Session lifecycle
@@ -99,8 +100,11 @@ inside it is writable by the person being recorded.
 4. **The workspace is containerized and resettable.** Host OS stays thin; reset is
    "destroy containers + volumes, re-seed", never manual cleanup. Local
    `docker compose up` gives contributors exactly what the candidate sees.
-5. **LLM access is provisioned, never shared.** The provider key lives only in the
-   proxy; candidates get a session-scoped key with model allowlist and budget.
+5. **LLM access is provisioned, never shared — and optional.** The provider key lives
+   only in the proxy; candidates get a session-scoped key with model allowlist and
+   budget. An instance can run with no proxy at all (`COMPOSE_PROFILES=llm` unset), and
+   a session can be created without Gemini access; either way no key is minted and no
+   Gemini surface (nav, tile, page, API, handout bullet, workspace env) is shown.
 6. **Live-first, pair-ready.** v1 supports live moderated sessions only;
    nothing in the session model may assume exactly one human in the workspace, so a
    pair session is an additive change later. No take-home mode.

@@ -11,6 +11,7 @@ import urllib.parse
 from datetime import datetime, timezone
 
 import handout
+import model
 import theme
 import views
 from theme import esc
@@ -85,6 +86,7 @@ def _session_form_fields(problems, s=None):
     dur = s["duration_minutes"] if s else 90
     budget = f'{s["llm_budget_usd"]:g}' if s else "5"
     models = s["llm_models"] if s else ["gemini-3.7-flash", "gemini-3.5-flash-lite"]
+    llm_on = s["llm_enabled"] if s else True
     terms = esc(s["terms_text"]) if (s and s["terms_text"]) else ""
     sel = s["problem_ids"] if s else []
     code_attr = f' value="{esc(s["access_code"])}"' if s else ' placeholder="auto"'
@@ -106,21 +108,11 @@ def _session_form_fields(problems, s=None):
         <input type="text" id="ac" name="access_code" maxlength="6"{code_attr}></div>
       <div><label for="dm">Duration (minutes)</label>
         <input type="number" id="dm" name="duration_minutes" value="{dur}" min="5" max="600"></div>
-      <div><label for="bg">LLM budget (USD)</label>
-        <input type="number" id="bg" name="llm_budget_usd" value="{budget}" min="0" step="0.5"></div>
       <div><label>Internet access</label>
         <p class="muted small" style="margin:6px 0 0">Full for every session — per-session
         restriction is not implemented, so there is no setting to set.</p></div>
     </div>
-    <label>Models</label>
-    <div class="row">
-      <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
-        value="gemini-3.7-flash"{ck('gemini-3.7-flash')}> gemini-3.7-flash</label>
-      <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
-        value="gemini-3.5-flash-lite"{ck('gemini-3.5-flash-lite')}> gemini-3.5-flash-lite</label>
-      <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
-        value="gemini-3.1-pro"{ck('gemini-3.1-pro')}> gemini-3.1-pro (opt-in)</label>
-    </div>
+    {_llm_form_fields(llm_on, budget, ck)}
     <label>Problems</label>{opts}
     <label for="tt">Terms <span class="muted" style="font-weight:400">(blank = standard default)</span></label>
     <textarea id="tt" name="terms_text" placeholder="Leave blank to use the standard terms.">{terms}</textarea>"""
@@ -307,11 +299,39 @@ def _comparison_buttons(comparisons):
         for c in comparisons or [])
 
 
+def _llm_form_fields(llm_on, budget, ck):
+    """The Gemini part of the session form. With LLM support off instance-wide there
+    is nothing to configure, so the block says so instead of offering controls that
+    could not take effect."""
+    if not model.LLM_ENABLED:
+        return """<label>Gemini access</label>
+    <p class="muted small" style="margin:6px 0 0">Off for every session — this instance runs
+    without the LLM proxy (<span class="mono">COMPOSE_PROFILES=llm</span> is not set).</p>"""
+    return f"""<label>Gemini access</label>
+    <label class="checkrow" style="margin:0 0 12px"><input type="checkbox" name="llm_enabled"
+      value="1"{" checked" if llm_on else ""}> Chat playground and an API key in the workspace
+      <span class="muted">(unticked: no key is issued and the Gemini tab is hidden)</span></label>
+    <div class="grid">
+      <div><label for="bg">LLM budget (USD)</label>
+        <input type="number" id="bg" name="llm_budget_usd" value="{budget}" min="0" step="0.5"></div>
+    </div>
+    <label>Models</label>
+    <div class="row">
+      <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
+        value="gemini-3.7-flash"{ck('gemini-3.7-flash')}> gemini-3.7-flash</label>
+      <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
+        value="gemini-3.5-flash-lite"{ck('gemini-3.5-flash-lite')}> gemini-3.5-flash-lite</label>
+      <label class="checkrow" style="margin:0"><input type="checkbox" name="llm_models"
+        value="gemini-3.1-pro"{ck('gemini-3.1-pro')}> gemini-3.1-pro (opt-in)</label>
+    </div>"""
+
+
 def _llm_limits_form(sid, s):
     """Mid-interview relief valve: raise the budget / enable models on the
     live session — unillm reads both from the control file per request, so the change
-    lands on the candidate's next call. Created sessions use the full Edit form."""
-    if s["state"] != "active":
+    lands on the candidate's next call. Created sessions use the full Edit form. A
+    session without Gemini access has no limits to show."""
+    if s["state"] != "active" or not model.session_llm_enabled(s):
         return ""
     ck = lambda m: " checked" if m in s["llm_models"] else ""
     return f"""
@@ -343,6 +363,13 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None,
                          llm_cutoff_usd=None):
     sid = esc(s["id"])
     budget = s["llm_budget_usd"]
+    llm_on = model.session_llm_enabled(s)
+    if llm_on:
+        llm_field = f"${budget:.2f} · {', '.join(s['llm_models'])}"
+    elif not model.LLM_ENABLED:
+        llm_field = "off (this instance runs without the LLM proxy)"
+    else:
+        llm_field = "off for this session"
     fields = [
         ("Candidate", s["candidate_name"]),
         ("Workspace user", s["workspace_user"]),
@@ -350,13 +377,13 @@ def admin_session_detail(who, s, moderation=None, notice=None, reactivate=None,
         ("Problems", ", ".join(s["problem_ids"]) or "—"),
         ("Duration", f"{s['duration_minutes']} min"),
         ("Starts / ends", f"{s['starts_at'] or '—'} → {s['ends_at'] or '—'}"),
-        ("LLM", f"${budget:.2f} · {', '.join(s['llm_models'])}"),
+        ("LLM", llm_field),
         ("Internet", "full (unrestricted)" if s["internet_access"]
                      else "restricted (recorded, never enforced — egress was full)"),
         ("Terms accepted", s["terms_accepted_at"] or "not yet"),
     ]
     budget_banner = ""
-    if llm_spend is not None:
+    if llm_spend is not None and llm_on:
         cutoff = llm_cutoff_usd if llm_cutoff_usd is not None else budget
         fields.insert(7, ("LLM spend",
                           f"${llm_spend:.2f} of ${budget:.2f} (cutoff ${cutoff:.2f})"))
@@ -475,6 +502,7 @@ def session_handout(s, url):
         "access_code": s["access_code"],
         "candidate_name": s["candidate_name"],
         "terms": s.get("terms_text") or views.DEFAULT_TERMS,
+        "llm_enabled": model.session_llm_enabled(s),
     })
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1006,7 +1034,24 @@ a candidate dataset.</p>
 
 
 # --- LLM proxy tab ----------------------------------------------------------
-def llm_admin_page(who, llm_key, llm_test=None, models_info=None, notice=None):
+def llm_admin_page(who, llm_key, llm_test=None, models_info=None, notice=None, enabled=True):
+    if not enabled:
+        body = f"""{theme.flash(notice)}
+<div class="subhead"><h2>unillm proxy</h2></div>
+<div class="box">
+  <div class="box-header"><h2>Status</h2></div>
+  <div class="box-body">
+    <p style="margin:0">LLM support is <b>off</b> on this instance: the unillm service is not
+      running, no Vertex key is needed, and no session gets Gemini access — candidates see
+      no Gemini tab, tile or API key.</p>
+    <p class="muted small" style="margin:8px 0 0">To turn it on, set
+      <span class="mono">COMPOSE_PROFILES=llm</span> and a real
+      <span class="mono">UNILLM_MASTER_KEY</span> in <span class="mono">environments/.env</span>,
+      put the Vertex service-account key in place, and run
+      <span class="mono">docker compose up -d</span> again (see docs/deploy.md).</p>
+  </div>
+</div>"""
+        return _page("LLM proxy · Admin", body, who, tab="llm")
     result = ""
     if llm_test is not None:
         kind = "ok" if llm_test["ok"] else "err"

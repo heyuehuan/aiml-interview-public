@@ -21,7 +21,8 @@ terms-accepted, in-window session, else **401**.
 
 ## Admin lifecycle
 
-Create → **activate** (writes the control file + issues the LLM key + packages problems)
+Create → **activate** (writes the control file + issues the LLM key, if the session has
+Gemini access + packages problems)
 → extend / close → export → reset, mapped onto the `created→active→closed→exported→reset`
 state machine. A **closed** session can be **reactivated** (`closed→active`) so a
 candidate can resume: it re-provisions like activation, preserves the remaining time when
@@ -118,7 +119,10 @@ python -m pytest tests/            # state machine + code tests
 
 `PORTAL_SECRET` (cookie signing), `ADMIN_USERNAME` + `ADMIN_PASSWORD` or
 `ADMIN_PASSWORD_HASH`, `PLATFORM_DB`, `DATA_DIR`, `CONTROL_FILE`, `PROBLEMS_SEED_DIR`,
-`PROBLEMS_REGISTRY`, `UNILLM_MASTER_KEY`, `UNILLM_INTERNAL_URL`, `LLM_BASE_URL`,
+`PROBLEMS_REGISTRY`, `LLM_ENABLED` (the instance-wide Gemini switch; compose passes
+`COMPOSE_PROFILES` through, so `llm` in it means on — unset means on, for a bare
+checkout), `UNILLM_MASTER_KEY` (required only while `LLM_ENABLED` is on),
+`UNILLM_INTERNAL_URL`, `LLM_BASE_URL`,
 `CODE_GRACE_MINUTES` (default 60),
 `PORTAL_PUBLIC_URL` (default `https://interview.example.com/` — the URL printed on the
 admin's candidate handout; display only), `PLATFORM_NAME` (default `Technical Interview

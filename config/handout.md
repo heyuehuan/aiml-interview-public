@@ -17,7 +17,8 @@
 #   {terms}          this session's terms text (from the session row, not this file)
 #   {icon:NAME}      an inline icon; NAME = problems | gemini | ide | jupyter |
 #                    terminal | brand. At the start of a list item it replaces the
-#                    bullet.
+#                    bullet. A list item that starts with {icon:gemini} is dropped
+#                    from the sheet for a session that has no Gemini access.
 #
 # Keep it to one page — nothing here paginates for you. Anyone who can read this file
 # can change what a candidate is told, so treat it as reviewed content, not scratch.

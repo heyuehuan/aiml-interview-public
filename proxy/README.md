@@ -3,6 +3,11 @@
 Managed LLM access for candidates. Implementation: **unillm** (lightweight
 LiteLLM-style proxy), running on the platform host.
 
+Optional: the `unillm` service is in the `llm` compose profile and runs only with
+`COMPOSE_PROFILES=llm` in `environments/.env`. Without it the platform runs with no LLM
+support at all — no Vertex key needed, no session gets a key, no Gemini surface is shown.
+Per session, the admin can also switch Gemini access off on the session form.
+
 ## Upstream & models
 
 - **Provider:** Google Vertex AI (Gemini). The API key lives only in the proxy's
@@ -59,7 +64,7 @@ OpenAI-compatible FastAPI proxy for Vertex AI Gemini. Runs as the `unillm` compo
 ### Run / test locally
 
 ```bash
-cp environments/.env.example environments/.env   # set UNILLM_MASTER_KEY
+cp environments/.env.example environments/.env   # set COMPOSE_PROFILES=llm and UNILLM_MASTER_KEY
 # place the Vertex SA JSON at environments/secrets/gcp-sa.json
 docker compose -f environments/compose.yaml up -d unillm
 curl -H "Authorization: Bearer $UNILLM_MASTER_KEY" http://localhost:8081/v1/models

@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     ends_at           TEXT,
     llm_budget_usd    REAL NOT NULL DEFAULT 5,
     llm_models        TEXT NOT NULL DEFAULT '[]',
+    -- Per-session Gemini switch (0 = no key issued, page/tile/API hidden). The
+    -- instance-wide switch is LLM_ENABLED in the environment; both must be on.
+    llm_enabled       INTEGER NOT NULL DEFAULT 1,
     internet_access   INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT NOT NULL,
     activated_at      TEXT,
@@ -173,6 +176,11 @@ def init():
         cols = {r["name"] for r in con.execute("PRAGMA table_info(admins)").fetchall()}
         if "cookie_epoch" not in cols:
             con.execute("ALTER TABLE admins ADD COLUMN cookie_epoch INTEGER NOT NULL DEFAULT 0")
+        # Add llm_enabled to sessions tables created before Gemini access became
+        # optional; existing sessions keep what they had (on).
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "llm_enabled" not in cols:
+            con.execute("ALTER TABLE sessions ADD COLUMN llm_enabled INTEGER NOT NULL DEFAULT 1")
         _drop_mcq_submit_columns(con)
         con.commit()
     finally:

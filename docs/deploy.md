@@ -10,7 +10,7 @@ checkout of this repository and tracks `origin/main` (git-pull deploy).
 /opt/interview/                       # a git checkout tracking origin/main
 └── environments/
     ├── .env                          # host-local secrets (NOT in git)
-    ├── secrets/gcp-sa.json           # Vertex AI service-account key (NOT in git)
+    ├── secrets/gcp-sa.json           # Vertex AI service-account key (NOT in git; LLM support only)
     └── compose.yaml
 ```
 
@@ -22,27 +22,36 @@ The deploy user must be in the `docker` group. The stack is driven from
 ```bash
 cd /opt/interview/environments
 cp .env.example .env          # then set APP_ENV=prod and override EVERY credential
+# Only with LLM support on (COMPOSE_PROFILES=llm in .env) — see "LLM support" below:
 mkdir -p secrets && cp /path/to/gcp-sa.json secrets/   # BEFORE the first `up`
 docker compose build          # slow: the workspace image pulls the full DS stack
 docker compose up -d
 docker compose ps
 ```
 
-`docker compose ps` on a freshly booted host does **not** show seven healthy
-services, and should not:
+`docker compose ps` on a freshly booted host does **not** show every service
+healthy, and should not:
 
 | Service | Status with no session running |
 |---|---|
 | `portal`, `admin` | healthy — this is what to check after a deploy |
 | `caddy`, `snapshot` | up, no health status (neither declares a healthcheck) |
 | `code-server`, `jupyterlab` | **unhealthy** — the entrypoint waits for an active session before starting the server, so the health endpoint is not listening yet |
-| `unillm` | healthy only once the Vertex key is in place; unhealthy without it |
+| `unillm` | listed only with LLM support on (`COMPOSE_PROFILES=llm`); then healthy once the Vertex key is in place, unhealthy without it |
 
 `code-server` and `jupyterlab` turn healthy about a minute after a session is
 activated, and go back to unhealthy after reset. Between candidates, unhealthy is
 the correct steady state for both.
 
-The Vertex key must be in place before the first `up`. Compose is configured with
+### LLM support (optional)
+
+Gemini access is off unless `.env` sets `COMPOSE_PROFILES=llm`. Off means the `unillm`
+service is not started, no Vertex key is needed, no session is issued an API key, and
+candidates see no Gemini tab, tile or playground; the admin's **LLM proxy** tab says so.
+Everything else — problems, IDE, Jupyter, terminal, audit streams, export — is unchanged.
+
+On means `unillm` runs, `UNILLM_MASTER_KEY` must hold a real value, and the Vertex key
+must be in place before the first `up`. Compose is configured with
 `create_host_path: false` for that mount, so a missing key aborts the `up` with a mount
 error naming the path — deliberately, because the short mount syntax used to have Docker
 create it as a root-owned *directory* instead. unillm then reported healthy and every
@@ -50,10 +59,20 @@ completion failed at request time with `[Errno 21] Is a directory`, which the ca
 saw as an HTTP 500. Confirm the real thing works with **Test Gemini** in the admin panel
 under **LLM proxy**.
 
+With the instance switch on, each session still has its own **Gemini access** checkbox
+on the create/edit form. Unticked, that session gets no key, no Gemini nav item or home
+tile, no `/llm` page, no `LLM_*`/`OPENAI_*` env in the workspace, and no Gemini bullet on
+the printed handout.
+
+Upgrading an instance deployed before this switch existed: `unillm` no longer starts
+until `COMPOSE_PROFILES=llm` is added to `.env`; `make deploy` prints a line saying LLM
+support is off when that is the case.
+
 The stack boots fail-closed: with `APP_ENV=prod` it refuses to start on any of the
-public dev credentials, so `PORTAL_SECRET`, `UNILLM_MASTER_KEY` and an admin credential
-(`ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`) must each hold a real value in `.env` —
-setting them to something is not enough, the `.env.example` values are rejected by name.
+public dev credentials, so `PORTAL_SECRET`, an admin credential (`ADMIN_PASSWORD` or
+`ADMIN_PASSWORD_HASH`) and — with LLM support on — `UNILLM_MASTER_KEY` must each hold a
+real value in `.env` — setting them to something is not enough, the `.env.example` values
+are rejected by name.
 `PLATFORM_NAME`
 sets the instance name shown to candidates and interviewers.
 
@@ -98,8 +117,9 @@ browser ──https──▶ your TLS edge ──http──▶ Caddy 127.0.0.1:8
 Because the browser leg is HTTPS, keep `COOKIE_SECURE=1` (the default). Set
 `PORTAL_PUBLIC_URL` to the URL candidates actually type; it is printed on the handout.
 
-The LLM proxy (unillm) is published on `:8081` loopback-only; candidates reach it from
-inside the workspace container via the loopback forwarder, so it is never exposed.
+The LLM proxy (unillm), when LLM support is on, is published on `:8081` loopback-only;
+candidates reach it from inside the workspace container via the loopback forwarder, so
+it is never exposed.
 
 ## Deploy (git-pull)
 
@@ -111,8 +131,8 @@ INTERVIEW_HOST=user@your-host INTERVIEW_SSH_KEY=~/.ssh/your-key.pem make deploy
 
 `scripts/deploy.sh` SSHes in, fast-forwards the checkout to `origin/<branch>`
 (`git reset --hard` touches tracked files only, so the gitignored `.env` and
-`secrets/` survive), preflights `.env` for the required variables, and runs
-`docker compose up -d --build`. Override the target, key and branch with
+`secrets/` survive), preflights `.env` for the required variables (`UNILLM_MASTER_KEY` and the
+Vertex key only with `COMPOSE_PROFILES=llm`), and runs `docker compose up -d --build`. Override the target, key and branch with
 `INTERVIEW_HOST`, `INTERVIEW_SSH_KEY` and `INTERVIEW_BRANCH`.
 
 Portal and admin bind-mount the app code (`./portal:/app:ro`), so a pure-Python change can
@@ -126,6 +146,6 @@ sudo mkdir -p /opt/interview && sudo chown "$USER" /opt/interview
 git clone <your-fork-url> /opt/interview
 cd /opt/interview/environments
 cp .env.example .env && $EDITOR .env
-mkdir -p secrets && cp /path/to/gcp-sa.json secrets/
+mkdir -p secrets && cp /path/to/gcp-sa.json secrets/   # only with COMPOSE_PROFILES=llm
 docker compose up -d --build
 ```

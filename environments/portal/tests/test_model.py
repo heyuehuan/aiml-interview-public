@@ -78,6 +78,7 @@ def test_boot_config_refuses_a_mangled_admin_hash(monkeypatch):
     monkeypatch.setattr(model, "SECRET", b"a-real-secret")
     monkeypatch.setenv("ADMIN_USERNAME", "admin")
     monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    monkeypatch.setenv("UNILLM_MASTER_KEY", "sk-unillm-" + "a" * 32)  # LLM on: a key is required
 
     monkeypatch.setenv("ADMIN_PASSWORD_HASH", h)
     model.assert_boot_config()                          # well-formed: boots

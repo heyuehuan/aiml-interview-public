@@ -538,18 +538,23 @@ def reset_workspace(session_id):
 
 # --- control file (the live-session handoff) --------------------------------
 def write_control(session, llm_api_key):
-    """Publish the active session to the workspace containers."""
+    """Publish the active session to the workspace containers. `llm_api_key=None`
+    means the session has no Gemini access: the workspace entrypoint then exports no
+    `LLM_*`/`OPENAI_*` env and opens no loopback forwarder, and unillm (if it runs at
+    all) accepts no candidate key, because there is none to match."""
     os.makedirs(os.path.dirname(CONTROL_FILE), exist_ok=True)
+    llm_on = bool(llm_api_key)
     doc = {
         "state": "active",
         "session_id": session["id"],
         "workspace_user": session["workspace_user"],
         "display_name": session["candidate_name"],
         "seed_dir": os.path.join(PROBLEMS_SEED_DIR, session["id"]),
-        "llm_base_url": LLM_BASE_URL,
-        "llm_api_key": llm_api_key,
-        "llm_models": session["llm_models"],
-        "llm_budget_usd": session["llm_budget_usd"],
+        "llm_enabled": llm_on,
+        "llm_base_url": LLM_BASE_URL if llm_on else None,
+        "llm_api_key": llm_api_key or None,
+        "llm_models": session["llm_models"] if llm_on else [],
+        "llm_budget_usd": session["llm_budget_usd"] if llm_on else 0,
         "ends_at": session.get("ends_at"),
     }
     _atomic_write(CONTROL_FILE, json.dumps(doc, indent=2))
@@ -583,8 +588,9 @@ def refresh_control_session_fields(session):
         return
     if doc.get("state") != "active" or doc.get("session_id") != session["id"]:
         return
-    doc["llm_models"] = session["llm_models"]
-    doc["llm_budget_usd"] = session["llm_budget_usd"]
+    if doc.get("llm_api_key"):  # a session without Gemini has no limits to refresh
+        doc["llm_models"] = session["llm_models"]
+        doc["llm_budget_usd"] = session["llm_budget_usd"]
     doc["ends_at"] = session.get("ends_at")
     _atomic_write(CONTROL_FILE, json.dumps(doc, indent=2))
 
@@ -619,8 +625,9 @@ def preflight_activate(session):
 
 def on_activate(session):
     """The part of activation that must happen *after* the state flips — the control file
-    carries `ends_at`, which only exists once the session is active."""
-    key = issue_llm_key(session)
+    carries `ends_at`, which only exists once the session is active. A session without
+    Gemini access (per session, or instance-wide) gets no key at all."""
+    key = issue_llm_key(session) if model.session_llm_enabled(session) else None
     write_control(session, key)
     model.record_event(session["id"], "system", "workspace_provisioned",
                        {"workspace_user": session["workspace_user"]})

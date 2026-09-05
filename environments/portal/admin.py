@@ -60,6 +60,8 @@ def _problems_page(who, deliver_report=None, notice=None):
 
 
 def _llm_page(who, llm_test=None, notice=None):
+    if not model.LLM_ENABLED:
+        return Response.html(views.llm_admin_page(who, None, notice=notice, enabled=False))
     return Response.html(views.llm_admin_page(
         who, UNILLM_MASTER_KEY, llm_test=llm_test,
         models_info=integrations.list_models(), notice=notice))
@@ -161,6 +163,8 @@ def llm_test(req):
     who, redirect = _require(req)
     if redirect:
         return redirect
+    if not model.LLM_ENABLED:
+        return Response.redirect("/admin/llm")
     return _llm_page(who, llm_test=integrations.gemini_healthcheck())
 
 
@@ -222,6 +226,9 @@ def create(req):
             duration_minutes=int(f.get("duration_minutes") or 90),
             llm_budget_usd=float(f.get("llm_budget_usd") or 5),
             llm_models=req.getlist("llm_models") or None,
+            # The checkbox is only rendered while the instance has LLM support, so
+            # with it off every new session is recorded as having none.
+            llm_enabled=bool(f.get("llm_enabled")) and model.LLM_ENABLED,
             # Not a form field any more: nothing enforces restriction, so
             # every session is recorded as what it actually gets — full egress.
             internet_access=True,
@@ -696,6 +703,7 @@ def edit_save(req, sid):
             duration_minutes=int(f.get("duration_minutes") or 90),
             llm_budget_usd=float(f.get("llm_budget_usd") or 5),
             llm_models=req.getlist("llm_models") or None,
+            llm_enabled=bool(f.get("llm_enabled")) and model.LLM_ENABLED,
             # Preserved, not editable: the flag is a record, not a control.
             internet_access=s["internet_access"],
             terms_text=(f.get("terms_text") or "").strip() or None,

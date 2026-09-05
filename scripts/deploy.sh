@@ -32,10 +32,19 @@ git reset --hard "origin/${BRANCH}"
 echo -n "  now at: "; git --no-pager log -1 --oneline
 
 cd environments
+# LLM support is optional: COMPOSE_PROFILES=llm in .env starts unillm and is the only
+# case where the master key and the Vertex key are required.
+llm_on=0
+if grep -E '^COMPOSE_PROFILES=' .env 2>/dev/null | tail -n1 | tr ',' '\n' | grep -qxE '(COMPOSE_PROFILES=)?llm'; then
+  llm_on=1
+fi
+
 # Preflight: the hardened build fails closed — it refuses to boot without these set
 # in the host-local .env. Catch that here with a clear message instead of a crash loop.
 missing=""
-for v in PORTAL_SECRET UNILLM_MASTER_KEY; do
+required="PORTAL_SECRET"
+[ "$llm_on" = 1 ] && required="$required UNILLM_MASTER_KEY"
+for v in $required; do
   grep -qE "^${v}=" .env 2>/dev/null || missing="${missing} ${v}"
 done
 if ! grep -qE "^ADMIN_PASSWORD=.+" .env 2>/dev/null && ! grep -qE "^ADMIN_PASSWORD_HASH=.+" .env 2>/dev/null; then
@@ -47,19 +56,23 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-# The Vertex key must be a readable FILE. Compose is configured not to create the host
-# path, so a missing one aborts the `up` — but say so here, where the message can name
-# the fix, rather than letting the operator read a mount error.
-KEY_FILE="$(sed -n 's/^GCP_SA_KEY_FILE=//p' .env | tail -n1)"
-KEY_FILE="${KEY_FILE:-./secrets/gcp-sa.json}"
-if [ ! -f "$KEY_FILE" ]; then
-  echo "✗ Vertex service-account key not found at environments/${KEY_FILE#./}" >&2
-  if [ -d "$KEY_FILE" ]; then
-    echo "  It is a DIRECTORY — an earlier 'docker compose up' created it. Remove it" >&2
-    echo "  (sudo rmdir) and copy the real key into place." >&2
+if [ "$llm_on" = 1 ]; then
+  # The Vertex key must be a readable FILE. Compose is configured not to create the
+  # host path, so a missing one aborts the `up` — but say so here, where the message
+  # can name the fix, rather than letting the operator read a mount error.
+  KEY_FILE="$(sed -n 's/^GCP_SA_KEY_FILE=//p' .env | tail -n1)"
+  KEY_FILE="${KEY_FILE:-./secrets/gcp-sa.json}"
+  if [ ! -f "$KEY_FILE" ]; then
+    echo "✗ Vertex service-account key not found at environments/${KEY_FILE#./}" >&2
+    if [ -d "$KEY_FILE" ]; then
+      echo "  It is a DIRECTORY — an earlier 'docker compose up' created it. Remove it" >&2
+      echo "  (sudo rmdir) and copy the real key into place." >&2
+    fi
+    echo "  Copy the key there, or point GCP_SA_KEY_FILE at it. See docs/deploy.md." >&2
+    exit 1
   fi
-  echo "  Copy the key there, or point GCP_SA_KEY_FILE at it. See docs/deploy.md." >&2
-  exit 1
+else
+  echo "  LLM support is off (COMPOSE_PROFILES in .env does not include llm): unillm will not start."
 fi
 
 docker compose up -d --build

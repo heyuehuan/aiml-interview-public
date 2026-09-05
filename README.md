@@ -26,8 +26,8 @@ reports, a generic instance name, and no candidate data of any kind.
 One persistent server hosts everything; one candidate at a time, admin working
 concurrently. Full lifecycle in `docs/architecture.md`.
 
-1. **Admin** configures a session: problems, candidate display name, duration, LLM
-   models/budget, terms text; issues an access code.
+1. **Admin** configures a session: problems, candidate display name, duration, Gemini
+   access (optional) with models/budget, terms text; issues an access code.
 2. **Candidate** enters the access code, accepts the terms, and lands on a personalized
    home page with tools: Problems, IDE (OSS Code), Jupyter, Terminal.
 3. **Logging** continuously records auditable checkpoints on-host: a git snapshot of the
@@ -51,9 +51,11 @@ docker compose up --build       # first build pulls the full DS stack; be patien
 Open `http://localhost:8080/` for the candidate portal and
 `http://localhost:8080/admin` for the admin panel (`admin` / `admin` in the dev
 profile). Create a session, pick a problem, and enter the access code in another
-browser to walk through the candidate side. LLM access needs a Vertex AI
-service-account key at `environments/secrets/gcp-sa.json`; everything else works
-without one.
+browser to walk through the candidate side. Gemini access is optional and off by
+default: the stack runs without the LLM proxy and candidates see no Gemini tab. To turn
+it on, uncomment `COMPOSE_PROFILES=llm` in `.env` and put a Vertex AI service-account
+key at `environments/secrets/gcp-sa.json` before starting. Per session, the admin can
+also untick Gemini access on the session form.
 
 Set `PLATFORM_NAME` in `.env` to put your own name in the header, footer, handout and
 report pages. Production deployment: `docs/deploy.md`.

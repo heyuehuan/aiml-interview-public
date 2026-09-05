@@ -109,10 +109,12 @@ def accept_terms(req):
 
 # --- Gemini page + server-side chat history ------
 def _llm_gated(req):
-    """The Gemini page and chat API share the /problems gate: an active,
-    terms-accepted session."""
+    """The Gemini page and chat API share the /problems gate — an active,
+    terms-accepted session — plus Gemini access for this session (per session and
+    instance-wide). Without it the page redirects home and the API answers 401, the
+    same as with no session at all."""
     s = _current(req)
-    if not s or not s["terms_accepted_at"]:
+    if not s or not s["terms_accepted_at"] or not model.session_llm_enabled(s):
         return None
     return s
 

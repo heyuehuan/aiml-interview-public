@@ -50,10 +50,17 @@ services:
       # $PROBLEMS_ROOT/*/problem.yaml for id/title/status.
       PROBLEMS_ROOT: /srv/problems
       PACKAGER_CWD: /srv
-      # unillm: one shared master key. LLM_BASE_URL is the *candidate-facing* URL
+      # Instance-wide Gemini switch. COMPOSE_PROFILES=llm in .env is what starts the
+      # unillm service (it carries `profiles: [llm]`), and the same value tells the app
+      # LLM support is on; anything else hides every Gemini surface and issues no keys.
+      LLM_ENABLED: ${COMPOSE_PROFILES:-}
+      # unillm: the server-side master key. LLM_BASE_URL is the *candidate-facing* URL
       # baked into the workspace env (loopback forwarder → unillm). UNILLM_INTERNAL_URL
       # is the compose-internal URL the admin's Test-Gemini button calls server-side.
-      UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:?UNILLM_MASTER_KEY must be set in .env — see .env.example}
+      # No `:?` here: the key is only required while the llm profile is active, and
+      # the app's boot check enforces that (compose interpolates every service's
+      # environment whether or not its profile is on).
+      UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:-}
       UNILLM_INTERNAL_URL: ${UNILLM_INTERNAL_URL:-http://unillm:8081/v1}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:8081/v1}
       # Candidate-facing URL printed on the admin's PDF handout. Display
@@ -121,7 +128,9 @@ services:
       retries: 5
     networks: [interview]
 
-  # unillm: OpenAI-compatible Vertex AI Gemini proxy. Unlike the other services it
+  # unillm: OpenAI-compatible Vertex AI Gemini proxy. Optional: it belongs to the `llm`
+  # profile, so it runs only with COMPOSE_PROFILES=llm in .env; without that the stack
+  # comes up with no LLM support and needs no Vertex key. Unlike the other services it
   # is published directly on host :8081 (candidates use localhost:8081, prod domain:8081)
   # rather than fronted by caddy. Auth: the server-side master key plus
   # the per-session candidate key read live from the control file — the
@@ -131,13 +140,17 @@ services:
       context: ../proxy
       dockerfile: Dockerfile
     image: interview-platform/unillm:dev
+    profiles: ["llm"]
     restart: unless-stopped
     ports:
       # Loopback-only: candidates reach unillm in-container via the workspace loopback
       # forwarder (→ unillm:8081 on the candidate net), so 8081 need not be public.
       - "127.0.0.1:${UNILLM_HOST_PORT:-8081}:8081"
     environment:
-      UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:?UNILLM_MASTER_KEY must be set in .env — see .env.example}
+      # Required while this profile is active; the portal's boot check refuses an
+      # unset or dev-default value outside APP_ENV=dev, and unillm itself refuses every
+      # request with no key configured.
+      UNILLM_MASTER_KEY: ${UNILLM_MASTER_KEY:-}
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-sa.json
       # Transcript audit stream: unillm appends every completion to the
       # active session's llm_transcript.jsonl, resolving the session from the control file.

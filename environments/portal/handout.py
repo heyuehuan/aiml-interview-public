@@ -14,6 +14,9 @@ Session values reach the page as `{url}`, `{access_code}`, `{candidate_name}` an
 substituted *after* Markdown rendering and HTML-escaped there, so nothing a candidate
 or an admin typed can inject markup, and a substituted value is never rescanned for
 further placeholders.
+
+A session without Gemini access (`llm_enabled` false in `values`) drops every list
+item that opens with `{icon:gemini}`, so the paper matches the home page.
 """
 from __future__ import annotations
 
@@ -76,6 +79,8 @@ _PLACEHOLDER = re.compile(r"\{(icon:[a-z0-9_]+|url|access_code|candidate_name|te
 # Without the wrapper every <strong> is its own flex item, so `gap` opens a blank beside
 # each one and the text runs can no longer wrap as a single paragraph.
 _ICON_LI = re.compile(r"<li>\s*(\{icon:[a-z0-9_]+\})\s*(.*?)</li>", re.S)
+# The Gemini bullet, removed whole for a session that has no Gemini access.
+_GEMINI_LI = re.compile(r"<li>\s*\{icon:gemini\}.*?</li>\s*", re.S)
 
 
 def _load_file() -> tuple[str, str | None]:
@@ -101,6 +106,8 @@ def _substitute(rendered: str, values: dict) -> str:
             return f'<span class="terms">{html.escape(values.get("terms", ""))}</span>'
         return html.escape(str(values.get(name, "")))
 
+    if not values.get("llm_enabled", True):
+        rendered = _GEMINI_LI.sub("", rendered)
     wrapped = _ICON_LI.sub(r'<li class="ico">\1<span>\2</span></li>', rendered)
     return _PLACEHOLDER.sub(repl, wrapped)
 

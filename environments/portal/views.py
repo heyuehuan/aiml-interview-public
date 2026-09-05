@@ -5,6 +5,7 @@ pages live in views_admin.py; the Gemini page in views_llm.py.
 """
 from __future__ import annotations
 
+import model
 import theme
 from theme import esc
 
@@ -24,12 +25,16 @@ to exfiltrate data, attack the platform, or use the workspace for anything other
 this interview."""
 
 
-def _candidate_nav(active):
-    return "".join([
+def _candidate_nav(active, session):
+    """The Gemini item exists only for a session that has Gemini access — a candidate
+    without it never sees the word."""
+    items = [
         theme.nav_item("/", "Home", active == "home"),
         theme.nav_item("/problems", "Problems", active == "problems"),
-        theme.nav_item("/llm", "Gemini", active == "llm"),
-    ])
+    ]
+    if model.session_llm_enabled(session):
+        items.append(theme.nav_item("/llm", "Gemini", active == "llm"))
+    return "".join(items)
 
 
 def _session_header_right(session, remaining_minutes=None):
@@ -110,10 +115,12 @@ _TILES = [
 
 
 def home(session, remaining_minutes):
+    llm_on = model.session_llm_enabled(session)
     tiles = "".join(
         f'<a class="tile" href="{href}"{" target=_blank rel=noopener" if newtab else ""}>'
         f'<div class="ico">{ico}</div><h2>{esc(name)}</h2><p>{desc}</p></a>'
         for href, ico, name, desc, newtab in _TILES
+        if href != "/llm" or llm_on
     )
     body = f"""<h1 class="page-title" style="margin-bottom:4px">Welcome, {esc(session['candidate_name'])}</h1>
 <p class="muted" style="margin:0 0 24px">Your workspace is ready. Pick a tool to get started.</p>
@@ -121,7 +128,7 @@ def home(session, remaining_minutes):
     return theme.page("Workspace", body,
                       header_ctx="Interview workspace",
                       header_right=_session_header_right(session, remaining_minutes),
-                      nav=_candidate_nav("home"))
+                      nav=_candidate_nav("home", session))
 
 
 # --- problems ---------------------------------------------------------------
@@ -256,4 +263,4 @@ def problems_page(session, items=None):
     return theme.page("Problems", body,
                       header_ctx="Problems",
                       header_right=_session_header_right(session),
-                      nav=_candidate_nav("problems"))
+                      nav=_candidate_nav("problems", session))
