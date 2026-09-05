@@ -8,6 +8,12 @@ toggle and per-page behaviour inlined by the views.
 from __future__ import annotations
 
 import html
+import os
+
+
+# Instance name shown in the header brand and the footer (and reused by the handout and
+# report pages). Set PLATFORM_NAME in the host .env to rebrand; the default is generic.
+BRAND = os.environ.get("PLATFORM_NAME", "Technical Interview Platform")
 
 
 def esc(s):
@@ -417,14 +423,15 @@ def theme_toggle():
             f'aria-label="Toggle theme" title="Toggle theme">{ICON_SUN}{ICON_MOON}</button>')
 
 
-def page(title, body, *, brand="Technical Interview Platform", brand_href="/", header_ctx="",
+def page(title, body, *, brand=None, brand_href="/", header_ctx="",
          header_right="", nav="", width="", full=False, head_extra="", footer=True):
     """Common shell. ``width``: '' (default 1012px) | 'narrow' | 'medium'.
     ``full``: viewport-height app layout (no footer, main is a flex row).
     ``nav``: pre-rendered <a> items for an underline tab nav under the header."""
+    brand = BRAND if brand is None else brand
     nav_html = f'<nav class="underline-nav">{nav}</nav>' if nav else ""
     main_cls = "full" if full else width
-    foot = "" if (full or not footer) else "<footer>&copy; 2026 Technical Interview Platform</footer>"
+    foot = "" if (full or not footer) else f"<footer>&copy; 2026 {esc(BRAND)}</footer>"
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
