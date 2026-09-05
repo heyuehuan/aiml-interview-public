@@ -231,6 +231,38 @@ def _world_readable(path):
             os.chmod(fp, os.stat(fp).st_mode | stat.S_IRGRP | stat.S_IROTH)
 
 
+def _workspace_owner():
+    """The uid/gid that owns ``~/workspace`` — the candidate's, once the workspace
+    entrypoint has provisioned the session. Returns None before that (a fresh volume is
+    still root-owned), in which case a copy is left as it is rather than guessed at."""
+    try:
+        st = os.stat(WORKSPACE_DIR)
+    except OSError:
+        return None
+    return (st.st_uid, st.st_gid) if st.st_uid else None
+
+
+def _give_to_candidate(path, recurse=True):
+    """Hand a copied path to the candidate. The portal runs as root, so everything it
+    copies lands root-owned; the working files of a pushed problem are meant to be
+    edited, and a candidate cannot edit (or `git init`, or delete) a root-owned file.
+    Datasets are the deliberate exception — ``recurse=False`` is for the ``data/`` root
+    that holds them, which the candidate owns while each seeded tree inside it does not."""
+    owner = _workspace_owner()
+    if owner is None:
+        return
+    uid, gid = owner
+    paths = [path]
+    if recurse:
+        for root, dirs, files in os.walk(path):
+            paths.extend(os.path.join(root, n) for n in dirs + files)
+    for name in paths:
+        try:
+            os.chown(name, uid, gid)
+        except OSError:
+            pass
+
+
 def _make_readonly(path):
     """Make a seeded tree read-only to the candidate: dirs ``0555``, files ``0444``
     (readable and traversable by everyone, writable by no one). The portal runs as root
@@ -306,7 +338,11 @@ def copy_problem_to_workspace(session_id, problem_id, data_only=False):
     data_src = os.path.join(src, "data")
     if os.path.isdir(data_src):
         data_dst = _candidate_data_dst(problem_id)
-        os.makedirs(os.path.dirname(data_dst), exist_ok=True)
+        data_root = os.path.dirname(data_dst)
+        os.makedirs(data_root, exist_ok=True)
+        # ~/workspace/data/ is the candidate's — they may put their own files beside a
+        # dataset. Only the seeded trees inside it stay root-owned and read-only.
+        _give_to_candidate(data_root, recurse=False)
         if os.path.isdir(data_dst):
             _restore_writable(data_dst)
             shutil.rmtree(data_dst, ignore_errors=True)
@@ -330,6 +366,7 @@ def copy_problem_to_workspace(session_id, problem_id, data_only=False):
             else:
                 shutil.copy2(s, d)
         _world_readable(work_dst)
+        _give_to_candidate(work_dst)
         copied = copied or work_dst
 
     return copied
@@ -348,11 +385,13 @@ def copy_problems_to_workspace(session_id, problem_ids, data_only=False):
         index = os.path.join(_session_seed_dir(session_id), "PROBLEMS.md")
         if os.path.isfile(index):
             os.makedirs(WORKSPACE_DIR, exist_ok=True)
-            shutil.copy2(index, os.path.join(WORKSPACE_DIR, "PROBLEMS.md"))
+            dst = os.path.join(WORKSPACE_DIR, "PROBLEMS.md")
+            shutil.copy2(index, dst)
             try:
-                os.chmod(os.path.join(WORKSPACE_DIR, "PROBLEMS.md"), 0o644)
+                os.chmod(dst, 0o644)
             except OSError:
                 pass
+            _give_to_candidate(dst)
     return copied
 
 
