@@ -47,6 +47,21 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# The Vertex key must be a readable FILE. Compose is configured not to create the host
+# path, so a missing one aborts the `up` — but say so here, where the message can name
+# the fix, rather than letting the operator read a mount error.
+KEY_FILE="$(sed -n 's/^GCP_SA_KEY_FILE=//p' .env | tail -n1)"
+KEY_FILE="${KEY_FILE:-./secrets/gcp-sa.json}"
+if [ ! -f "$KEY_FILE" ]; then
+  echo "✗ Vertex service-account key not found at environments/${KEY_FILE#./}" >&2
+  if [ -d "$KEY_FILE" ]; then
+    echo "  It is a DIRECTORY — an earlier 'docker compose up' created it. Remove it" >&2
+    echo "  (sudo rmdir) and copy the real key into place." >&2
+  fi
+  echo "  Copy the key there, or point GCP_SA_KEY_FILE at it. See docs/deploy.md." >&2
+  exit 1
+fi
+
 docker compose up -d --build
 docker compose ps
 REMOTE

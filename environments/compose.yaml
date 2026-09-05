@@ -147,11 +147,23 @@ services:
       UNILLM_MAX_OUTPUT_TOKENS: ${UNILLM_MAX_OUTPUT_TOKENS:-8192}
       UNILLM_RATE_LIMIT_PER_MIN: ${UNILLM_RATE_LIMIT_PER_MIN:-60}
     volumes:
-      - ${GCP_SA_KEY_FILE:-./secrets/gcp-sa.json}:/secrets/gcp-sa.json:ro
+      # Long syntax with create_host_path: false on purpose. With the short form, a
+      # missing key file makes Docker silently create the source path as a ROOT-OWNED
+      # DIRECTORY: unillm still reports healthy and every completion fails at request
+      # time with "[Errno 21] Is a directory". Failing the `up` is the honest outcome.
+      - type: bind
+        source: ${GCP_SA_KEY_FILE:-./secrets/gcp-sa.json}
+        target: /secrets/gcp-sa.json
+        read_only: true
+        bind:
+          create_host_path: false
       - platform_data:/data          # writes only data/sessions/<id>/llm_transcript.jsonl
       - control:/control:ro          # reads the active session_id; never writes it
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;exit(0 if urllib.request.urlopen('http://localhost:8081/health').status==200 else 1)"]
+      # Serving *and* holding a usable Vertex credential. Reporting healthy while the
+      # key is unreadable is how a broken mount stayed invisible until a candidate's
+      # first completion returned a 500.
+      test: ["CMD", "python", "-c", "import json,os,urllib.request;json.load(open(os.environ['GOOGLE_APPLICATION_CREDENTIALS']));exit(0 if urllib.request.urlopen('http://localhost:8081/health').status==200 else 1)"]
       interval: 10s
       timeout: 3s
       retries: 5
