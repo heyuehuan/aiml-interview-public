@@ -236,7 +236,10 @@ services:
   # lean). The candidate workspace is mounted READ-ONLY; the agent writes only into
   # data/sessions/<id>/shadow.git, which no candidate container can reach.
   snapshot:
-    image: alpine/git:latest
+    # Pinned like every other image here (caddy:2, python:3.12-slim-bookworm): this one
+    # runs the audit stream, so a silently-moving :latest is the last place to want a
+    # surprise git. Bump deliberately.
+    image: alpine/git:v2.54.0
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/srv/scripts/snapshot_agent.sh"]
     environment:
