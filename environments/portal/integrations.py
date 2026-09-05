@@ -518,7 +518,7 @@ def session_seed_exists(session_id):
 def _run_script(name, session_id):
     path = os.path.join(SCRIPTS_DIR, name)
     if not os.path.exists(path):
-        _log
+        _log(f"{name} not found at {path}; skipping")
         return False
     try:
         subprocess.run(["bash", path, session_id], check=True, timeout=300)
