@@ -1,0 +1,17 @@
+id: ml-eval-concepts-001
+title: Model evaluation concepts
+# A conceptual multiple-choice screen shipped as an example of the MCQ format: every
+# run of bullets labelled A, B, C... under a "## Qn." heading renders as checkboxes on
+# the candidate problems page, and each selection is recorded (see problems/README.md).
+status: active
+
+summary: >
+  A five-question multiple-choice screen on model evaluation: accuracy under class
+  imbalance, which metrics are informative when positives are rare, what a leaked
+  post-hoc feature does to offline metrics, how to split time-ordered data that
+  drifts, and how to pick an operating threshold under a fixed review capacity.
+  Ten to fifteen minutes; the explanation matters more than the letter.
+
+# No generated data — a conceptual multiple-choice screen; problem.md is everything.
+candidate_paths:
+  - problem.md
