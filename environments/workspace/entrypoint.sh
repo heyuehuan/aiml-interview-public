@@ -65,7 +65,18 @@ ln -sfn "$WORKDIR" "$HOME_DIR/workspace"
 # To hand a candidate everything at once, use the admin full-push button.
 log "problems are released by the moderator; no seed is mounted in this container"
 
-chown -R "$USER_NAME:$USER_NAME" "$WORKDIR" "$HOME_DIR"
+# The candidate owns their workspace — except the datasets the platform provisioned,
+# which stay root-owned and read-only. This runs on every container start, a restart
+# mid-session included, so a blanket `chown -R` here does not just hand the candidate
+# write access to the problem's own bytes: ownership is also what keeps those bytes out
+# of the audit record (scripts/seeded_data.sh decides by owner), so the next snapshot
+# would start committing the whole dataset. Prune the root-owned trees under data/;
+# data/ itself is the candidate's, so they can still add their own files beside them.
+chown "$USER_NAME:$USER_NAME" "$WORKDIR"
+find "$WORKDIR" -mindepth 1 \
+     \( -path "$WORKDIR/data/*" -uid 0 -prune \) -o \
+     -exec chown -h "$USER_NAME:$USER_NAME" {} +
+chown -R "$USER_NAME:$USER_NAME" "$HOME_DIR"
 
 export HOME="$HOME_DIR" SESSION_ID="$SID" \
        LLM_BASE_URL="$LLM_BASE_URL" LLM_API_KEY="$LLM_API_KEY" \
