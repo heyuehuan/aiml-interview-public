@@ -38,9 +38,15 @@ these areas. Changing one is a documented change (update the area README and
 4. Tests pass:
 
    ```bash
-   python -m pytest environments/portal/tests problems/tests   # stdlib-only
-   python -m pytest proxy/tests                                  # needs proxy/requirements_unillm.txt
+   python -m pip install -r requirements-dev.txt   # pytest, pytest-asyncio, proxy deps
+   python -m pytest environments/portal/tests problems/tests   # stdlib-only code
+   python -m pytest proxy/tests                                # imports the proxy itself
    ```
+
+   `requirements-dev.txt` is the only test-install: the portal and packager suites
+   exercise stdlib-only code but still need the runner, and `proxy/tests` needs
+   `pytest-asyncio` for the streaming-transcript tests on top of the proxy's own
+   runtime dependencies.
 
 ## Requirements baseline
 
