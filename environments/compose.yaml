@@ -59,6 +59,8 @@ services:
       # Candidate-facing URL printed on the admin's PDF handout. Display
       # only — nothing routes on it.
       PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-https://interview.example.com/}
+      PLATFORM_NAME: ${PLATFORM_NAME:-Technical Interview Platform}
+      MCQ_CAPTURE_SINCE: ${MCQ_CAPTURE_SINCE:-}
       # Editable wording for that handout, from the ../config mount below.
       HANDOUT_FILE: /srv/config/handout.md
       # Uploaded AI hiring reviews — same mount, admin-only surface.
