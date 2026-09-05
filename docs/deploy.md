@@ -32,6 +32,25 @@ dev credentials, so `PORTAL_SECRET`, `UNILLM_MASTER_KEY` and an admin credential
 (`ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`) must be set in `.env`. `PLATFORM_NAME`
 sets the instance name shown to candidates and interviewers.
 
+### Setting `ADMIN_PASSWORD_HASH`
+
+Generate the line with `python environments/portal/hashpw.py 'your-password'` and paste
+its whole output into `.env`. It prints every `$` as `$$` on purpose. Compose
+interpolates `$` in `.env` values, so a hash pasted raw reaches the container with its
+separators eaten; the account seeds with a hash no password matches and the correct
+password returns 401. The boot check rejects a malformed hash rather than seeding a dead
+account, so you find out at `docker compose up`, not at the login screen.
+
+If a dead admin row was already seeded, fixing `.env` is not enough — `seed_admins()` is
+`INSERT OR IGNORE` and leaves the existing row alone. Either set `ADMIN_MASTER_KEY` in
+`.env` and log in with it, or, on an instance with no sessions worth keeping, drop the
+platform volume for a clean first boot:
+
+```bash
+docker compose down && docker volume rm interview-workspace_platform_data
+docker compose up -d
+```
+
 ## Edge / TLS
 
 Caddy binds loopback-only (`127.0.0.1:${PROXY_HTTP_PORT:-8080}:80`) and is not
