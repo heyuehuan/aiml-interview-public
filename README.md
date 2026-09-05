@@ -30,8 +30,11 @@ concurrently. Full lifecycle in `docs/architecture.md`.
    models/budget, terms text; issues an access code.
 2. **Candidate** enters the access code, accepts the terms, and lands on a personalized
    home page with tools: Problems, IDE (OSS Code), Jupyter, Terminal.
-3. **Logging** continuously records auditable checkpoints on-host: git snapshots of the
-   workspace, shell history, notebook cell executions, and every LLM call via the proxy.
+3. **Logging** continuously records auditable checkpoints on-host: a git snapshot of the
+   whole workspace every 60s, every lifecycle event, and every LLM call via the proxy.
+   Notebooks are captured as saved files by the snapshots, not as a live feed of cell
+   executions; shell history is not captured at all — both live in `$HOME`, outside the
+   snapshotted `~/workspace`. See `docs/architecture.md` for what each stream contains.
 4. **Admin** moderates live (progress view, hints, extend/terminate) and reviews
    afterwards; at close, the session exports one audit artifact bundle.
 5. **Reset** wipes the workspace and revokes the session key before the next candidate.
