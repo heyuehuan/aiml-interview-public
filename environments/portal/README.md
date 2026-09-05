@@ -116,7 +116,10 @@ python -m pytest tests/            # state machine + code tests
 `PROBLEMS_REGISTRY`, `UNILLM_MASTER_KEY`, `UNILLM_INTERNAL_URL`, `LLM_BASE_URL`,
 `CODE_GRACE_MINUTES` (default 60),
 `PORTAL_PUBLIC_URL` (default `https://interview.example.com/` — the URL printed on the
-admin's candidate handout; display only), `HANDOUT_FILE` (default `/srv/config/handout.md`).
+admin's candidate handout; display only), `PLATFORM_NAME` (default `Technical Interview
+Platform` — the instance name in the header, footer, handout and reports),
+`MCQ_CAPTURE_SINCE` (unset by default; only an upgraded instance sets it to the ISO-8601 UTC
+moment answer capture went live), `HANDOUT_FILE` (default `/srv/config/handout.md`).
 
 The handout's *wording* is not code: it lives in `config/handout.md` at the repo root
 (Markdown + a small frontmatter block, read on every request — edit and print, no
