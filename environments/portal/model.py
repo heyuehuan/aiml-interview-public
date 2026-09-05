@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import uuid
@@ -113,6 +114,35 @@ def normalize_code(raw):
 
 def valid_code_format(code):
     return len(code) == CODE_LEN and all(c in CODE_ALPHABET for c in code)
+
+
+# --- workspace user ---------------------------------------------------------
+# The OS login the workspace containers create and then run code-server / JupyterLab as
+# (entrypoint.sh: useradd, chown, gosu). The admin form marks the input required and
+# carries a pattern, but both checks live in the browser: a hand-rolled POST reached
+# create_session with an empty string, which stored "", shipped workspace_user="" in the
+# control file, rendered a blank label in the candidate header, and left the workspace
+# quietly falling back to "candidate".
+WORKSPACE_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+# entrypoint.sh reuses a login that already exists rather than creating one, so a
+# system account name would hand the candidate that account instead of a fresh one.
+RESERVED_WORKSPACE_USERS = {"root"}
+
+
+def valid_workspace_user(name):
+    """True for a name useradd will accept and the workspace can safely run as."""
+    name = (name or "").strip()
+    return bool(WORKSPACE_USER_RE.match(name)) and name not in RESERVED_WORKSPACE_USERS
+
+
+def _checked_workspace_user(name):
+    name = (name or "").strip()
+    if not valid_workspace_user(name):
+        raise ValueError(
+            "workspace user must be a Linux login name: a lowercase letter or "
+            "underscore first, then lowercase letters, digits, '-' or '_', at most 32 "
+            "characters, and not 'root'")
+    return name
 
 
 def gen_unique_code(con):
@@ -464,6 +494,7 @@ def list_sessions():
 def create_session(*, candidate_name, workspace_user, problem_ids=None, duration_minutes=90,
                    llm_budget_usd=5.0, llm_models=None, internet_access=True,
                    terms_text=None, access_code=None, actor="admin"):
+    workspace_user = _checked_workspace_user(workspace_user)
     con = db.connect()
     try:
         code = normalize_code(access_code) if access_code else gen_unique_code(con)
@@ -483,7 +514,7 @@ def create_session(*, candidate_name, workspace_user, problem_ids=None, duration
                 internet_access, created_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                sid, code, candidate_name.strip(), workspace_user.strip(),
+                sid, code, candidate_name.strip(), workspace_user,
                 json.dumps(problem_ids or []), "created", terms_text,
                 int(duration_minutes), float(llm_budget_usd),
                 json.dumps(llm_models or DEFAULT_MODELS),
@@ -510,6 +541,7 @@ def update_session(session_id, *, candidate_name, workspace_user, access_code,
         raise ValueError("no such session")
     if s["state"] not in EDITABLE_STATES:
         raise ValueError("only a not-yet-activated session can be edited")
+    workspace_user = _checked_workspace_user(workspace_user)
     code = normalize_code(access_code) if access_code else s["access_code"]
     if not valid_code_format(code):
         raise ValueError("access code must be 6 letters (A–Z)")
@@ -525,7 +557,7 @@ def update_session(session_id, *, candidate_name, workspace_user, access_code,
             """UPDATE sessions SET candidate_name=?, workspace_user=?, access_code=?,
                duration_minutes=?, llm_budget_usd=?, llm_models=?, internet_access=?,
                terms_text=?, problem_ids=? WHERE id=?""",
-            (candidate_name.strip(), workspace_user.strip(), code, int(duration_minutes),
+            (candidate_name.strip(), workspace_user, code, int(duration_minutes),
              float(llm_budget_usd), json.dumps(llm_models or DEFAULT_MODELS),
              1 if internet_access else 0, terms_text, json.dumps(problem_ids or []), session_id),
         )

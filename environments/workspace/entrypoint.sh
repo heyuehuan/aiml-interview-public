@@ -33,11 +33,22 @@ SID="$(field session_id)"
 USER_NAME="$(field workspace_user)"
 LLM_BASE_URL="$(field llm_base_url)"
 LLM_API_KEY="$(field llm_api_key)"
+# The portal validates workspace_user before it ever reaches the control file, so this
+# is a backstop for a control file written by an older portal, not the normal path.
 [ -n "$USER_NAME" ] || USER_NAME="candidate"
 log "provisioning session $SID as user '$USER_NAME'"
 
 # Non-root account. Home holds tool config; the shared workspace volume is symlinked in.
-if ! id "$USER_NAME" >/dev/null 2>&1; then
+# An existing login is reused rather than recreated, so refuse a system account outright:
+# running the candidate's tools as uid < 1000 (root above all) is the one thing this
+# account exists to prevent, and a silent fallback would hide it.
+if id "$USER_NAME" >/dev/null 2>&1; then
+  EXISTING_UID="$(id -u "$USER_NAME")"
+  if [ "$EXISTING_UID" -lt 1000 ]; then
+    log "refusing to run the workspace as system account '$USER_NAME' (uid $EXISTING_UID)"
+    exit 1
+  fi
+else
   useradd -m -s /bin/bash "$USER_NAME"
 fi
 HOME_DIR="/home/$USER_NAME"
