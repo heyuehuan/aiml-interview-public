@@ -41,6 +41,14 @@ dev credentials, so `PORTAL_SECRET`, `UNILLM_MASTER_KEY` and an admin credential
 (`ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`) must be set in `.env`. `PLATFORM_NAME`
 sets the instance name shown to candidates and interviewers.
 
+Set `PORTAL_PUBLIC_URL` to the URL candidates actually type. Besides the PDF handout, its
+origin becomes JupyterLab's `allow_origin`. Leave it unset and the workspace falls back
+to `*`, which lets any site the candidate happens to visit drive their notebook — Jupyter
+runs with its own token and xsrf check disabled here, because the session gate lives at
+Caddy, so the origin restriction is what backstops it. The workspace logs a warning on
+every launch that falls back to `*`. Override with `WORKSPACE_ALLOW_ORIGIN` only when the
+browser origin differs from the handout URL.
+
 ### Setting `ADMIN_PASSWORD_HASH`
 
 Generate the line with `python environments/portal/hashpw.py 'your-password'` and paste
