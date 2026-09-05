@@ -21,6 +21,10 @@ esac
 DATA_DIR="${DATA_DIR:-/data}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 
+# seeded_data_dirs(): the provisioned read-only datasets, which are not candidate work.
+# shellcheck source=seeded_data.sh
+. "$(dirname "${BASH_SOURCE[0]:-$0}")/seeded_data.sh"
+
 SESS_DIR="$DATA_DIR/sessions/$SID"
 EXPORT_DIR="$SESS_DIR/export"
 [ -d "$SESS_DIR" ] || { echo "[export] no session dir: $SESS_DIR" >&2; exit 1; }
@@ -47,9 +51,20 @@ copy_stream "$SESS_DIR/llm_transcript.jsonl" llm_transcript.jsonl
 copy_stream "$SESS_DIR/shadow.git"           shadow.git   # bare repo; `git clone` restores history
 
 # Final workspace tree (git history is already in shadow.git; this is the flat "as-left" copy).
+# The provisioned datasets are dropped from the copy (see seeded_data.sh) — they are the
+# problem package's own bytes, not the candidate's, and they dominate the archive: a
+# session with a few kB of work exported 34 MB, 27 MB of it one seeded CSV. A reviewer who
+# needs the data re-packages the problem; MANIFEST.txt names what was left out.
+omitted=()
 if [ -d "$WORKSPACE_DIR" ]; then
   mkdir -p "$ROOT/workspace"
   cp -a "$WORKSPACE_DIR/." "$ROOT/workspace/" 2>/dev/null || true
+  while IFS= read -r rel; do
+    if [ -n "$rel" ] && [ -e "$ROOT/workspace/$rel" ]; then
+      rm -rf "$ROOT/workspace/${rel:?}"
+      omitted+=("$rel")
+    fi
+  done < <(seeded_data_dirs "$WORKSPACE_DIR")
   have+=("workspace/")
 fi
 
@@ -58,6 +73,11 @@ fi
   echo "exported_at: $TS"
   echo "streams_present: ${have[*]:-none}"
   echo "streams_missing: ${miss[*]:-none}"
+  echo "workspace_omitted: ${omitted[*]:-none}"
+  if [ "${#omitted[@]}" -gt 0 ]; then
+    echo "  (provisioned read-only problem datasets, excluded from workspace/ and from"
+    echo "   shadow.git; re-create them by packaging the problem)"
+  fi
 } > "$ROOT/MANIFEST.txt"
 
 mkdir -p "$EXPORT_DIR"

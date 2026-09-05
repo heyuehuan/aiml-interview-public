@@ -15,6 +15,9 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 CONTROL_FILE="${CONTROL_FILE:-/control/active.json}"
 INTERVAL="${SNAPSHOT_INTERVAL:-60}"
 
+# seeded_data_dirs(): the provisioned read-only datasets, which are not candidate work.
+. "$(dirname "$0")/seeded_data.sh"
+
 export GIT_AUTHOR_NAME="snapshot-agent"    GIT_AUTHOR_EMAIL="snapshot@interview.local"
 export GIT_COMMITTER_NAME="snapshot-agent" GIT_COMMITTER_EMAIL="snapshot@interview.local"
 # Workspace is owned by the candidate uid; git runs as root here — trust it explicitly.
@@ -50,7 +53,19 @@ while true; do
       export GIT_DIR="$shadow" GIT_WORK_TREE="$WORKSPACE_DIR"
       # -f: the workspace is candidate-writable, so a plain add would honor a
       # candidate-written .gitignore — an audit stream the subject can filter (#2).
-      git add -A -f 2>/dev/null || true
+      # The provisioned datasets are excluded (see seeded_data.sh): they are the portal's
+      # own copies of problem data, so committing them adds tens of megabytes of already
+      # reproducible bytes to shadow.git and to every export bundle taken from it.
+      # ':/' and ':(top,...)' are relative to the work tree, so this works from any cwd.
+      set -- ':/'
+      while IFS= read -r rel; do
+        if [ -n "$rel" ]; then
+          set -- "$@" ":(top,exclude)$rel"
+        fi
+      done <<EOF
+$(seeded_data_dirs "$WORKSPACE_DIR")
+EOF
+      git add -A -f -- "$@" 2>/dev/null || true
       if ! git diff --cached --quiet 2>/dev/null; then
         if git commit -q -m "snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)" 2>/dev/null; then
           log "committed workspace snapshot for $sid"

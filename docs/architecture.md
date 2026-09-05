@@ -52,7 +52,10 @@ configure → issue code → candidate entry → live session → close → expo
    end (admin-adjustable); code stays reusable during the session for reconnects.
 5. **Export:** one artifact bundle per session — `MANIFEST.txt`, the workspace
    shadow-repo, a copy of the final workspace, `llm_transcript.jsonl` and
-   `events.jsonl`. Downloaded / archived by the admin.
+   `events.jsonl`. The provisioned problem datasets are left out of both the shadow-repo
+   and the workspace copy — they are the problem package's own bytes, re-created by
+   packaging the problem, and they otherwise dominate the archive; `MANIFEST.txt` names
+   what was omitted. Downloaded / archived by the admin.
 6. **Reset:** workspace containers and volumes wiped, session key revoked, host ready
    for the next candidate.
 
@@ -63,7 +66,7 @@ reachable from the candidate's containers:
 
 | Stream | Written by | Contents |
 |---|---|---|
-| `shadow.git` | `scripts/snapshot_agent.sh`, every 60s | a commit per change to `~/workspace`, taken with `git add -A -f` so a candidate-written `.gitignore` cannot filter the record |
+| `shadow.git` | `scripts/snapshot_agent.sh`, every 60s | a commit per change to `~/workspace`, taken with `git add -A -f` so a candidate-written `.gitignore` cannot filter the record; the provisioned read-only datasets under `data/` are the one exclusion (`scripts/seeded_data.sh`), decided by ownership so anything the candidate writes is still recorded |
 | `llm_transcript.jsonl` | unillm, per call | model, messages, response, tokens, cost, latency, and whether the call came from the workspace or the portal's chat page |
 | `events.jsonl` | portal + admin | every lifecycle transition and admin action, with `actor` |
 

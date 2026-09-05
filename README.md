@@ -31,7 +31,8 @@ concurrently. Full lifecycle in `docs/architecture.md`.
 2. **Candidate** enters the access code, accepts the terms, and lands on a personalized
    home page with tools: Problems, IDE (OSS Code), Jupyter, Terminal.
 3. **Logging** continuously records auditable checkpoints on-host: a git snapshot of the
-   whole workspace every 60s, every lifecycle event, and every LLM call via the proxy.
+   workspace every 60s (everything except the read-only datasets the platform itself
+   provisioned), every lifecycle event, and every LLM call via the proxy.
    Notebooks are captured as saved files by the snapshots, not as a live feed of cell
    executions; shell history is not captured at all — both live in `$HOME`, outside the
    snapshotted `~/workspace`. See `docs/architecture.md` for what each stream contains.
