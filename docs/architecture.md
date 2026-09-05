@@ -50,11 +50,30 @@ configure → issue code → candidate entry → live session → close → expo
    of the audit record.
 4. **Close:** on submit or timeout. Access code auto-disables 1 hour after session
    end (admin-adjustable); code stays reusable during the session for reconnects.
-5. **Export:** one artifact bundle per session — workspace shadow-repo, shell log,
-   notebook execution log, LLM transcript, session events, submission. Downloaded /
-   archived by the admin.
+5. **Export:** one artifact bundle per session — `MANIFEST.txt`, the workspace
+   shadow-repo, a copy of the final workspace, `llm_transcript.jsonl` and
+   `events.jsonl`. Downloaded / archived by the admin.
 6. **Reset:** workspace containers and volumes wiped, session key revoked, host ready
    for the next candidate.
+
+### What the audit streams actually contain
+
+Three streams, all under `data/sessions/<session-id>/` on the host, none of them
+reachable from the candidate's containers:
+
+| Stream | Written by | Contents |
+|---|---|---|
+| `shadow.git` | `scripts/snapshot_agent.sh`, every 60s | a commit per change to `~/workspace`, taken with `git add -A -f` so a candidate-written `.gitignore` cannot filter the record |
+| `llm_transcript.jsonl` | unillm, per call | model, messages, response, tokens, cost, latency, and whether the call came from the workspace or the portal's chat page |
+| `events.jsonl` | portal + admin | every lifecycle transition and admin action, with `actor` |
+
+The boundary worth knowing: the snapshot agent mounts only `~/workspace`, read-only.
+Anything the candidate does that never lands in a file there is not recorded. In
+particular **shell history is not captured** (`.bash_history` is in `$HOME`, one level
+up), and **there is no cell-execution feed** — a notebook enters the record when it is
+saved, so a cell run and never saved leaves no trace beyond its effect on the
+filesystem. Capturing either properly needs a sink outside the workspace, since anything
+inside it is writable by the person being recorded.
 
 ## Design principles
 
