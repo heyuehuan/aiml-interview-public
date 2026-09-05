@@ -25,6 +25,9 @@ import db
 APP_ENV = os.environ.get("APP_ENV", "prod").strip().lower()
 DEFAULT_SECRET = "dev-insecure-secret-change-me"
 SECRET = os.environ.get("PORTAL_SECRET", DEFAULT_SECRET).encode()
+# The unillm key shipped in .env.example. Public, like the cookie secret above, and it
+# mints every session key — so it gets the same treatment outside dev.
+DEFAULT_UNILLM_MASTER_KEY = "sk-unillm-dev-change-me"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 GRACE_MINUTES = int(os.environ.get("CODE_GRACE_MINUTES", "60"))
 COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", str(12 * 3600)))
@@ -60,6 +63,10 @@ def assert_boot_config():
     problems = []
     if SECRET in (b"", DEFAULT_SECRET.encode()):
         problems.append("PORTAL_SECRET is unset or still the public dev default")
+    # compose already refuses to start when this is unset (${UNILLM_MASTER_KEY:?...}),
+    # but presence is not the interesting property: the dev value is in .env.example.
+    if os.environ.get("UNILLM_MASTER_KEY", "") == DEFAULT_UNILLM_MASTER_KEY:
+        problems.append("UNILLM_MASTER_KEY is still the public dev default")
     # admin/admin is baked into every checkout of this repo. Require a real
     # credential at provision time — either a hash, or a non-default password of
     # useful length. (seed_admins is INSERT OR IGNORE, so an already-seeded DB keeps

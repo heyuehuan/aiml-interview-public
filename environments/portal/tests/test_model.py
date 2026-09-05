@@ -97,6 +97,22 @@ def test_boot_config_refuses_a_mangled_admin_hash(monkeypatch):
     assert "ADMIN_PASSWORD_HASH" in str(e.value) and "$$" in str(e.value)
 
 
+def test_boot_config_rejects_the_public_dev_unillm_key(monkeypatch):
+    monkeypatch.setattr(model, "APP_ENV", "prod")
+    monkeypatch.setattr(model, "SECRET", b"a-real-secret")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "a-real-password")
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+
+    monkeypatch.setenv("UNILLM_MASTER_KEY", "sk-unillm-" + "a" * 32)
+    model.assert_boot_config()
+
+    monkeypatch.setenv("UNILLM_MASTER_KEY", model.DEFAULT_UNILLM_MASTER_KEY)
+    with pytest.raises(SystemExit) as e:
+        model.assert_boot_config()
+    assert "UNILLM_MASTER_KEY" in str(e.value)
+
+
 def test_cookie_sign_unsign():
     tok = model.sign("abc-123")
     assert model.unsign(tok) == "abc-123"

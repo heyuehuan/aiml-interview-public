@@ -36,9 +36,11 @@ completion failed at request time with `[Errno 21] Is a directory`, which the ca
 saw as an HTTP 500. Confirm the real thing works with **Test Gemini** in the admin panel
 under **LLM proxy**.
 
-The stack boots fail-closed: with `APP_ENV=prod` it refuses to start on the public
-dev credentials, so `PORTAL_SECRET`, `UNILLM_MASTER_KEY` and an admin credential
-(`ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`) must be set in `.env`. `PLATFORM_NAME`
+The stack boots fail-closed: with `APP_ENV=prod` it refuses to start on any of the
+public dev credentials, so `PORTAL_SECRET`, `UNILLM_MASTER_KEY` and an admin credential
+(`ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`) must each hold a real value in `.env` —
+setting them to something is not enough, the `.env.example` values are rejected by name.
+`PLATFORM_NAME`
 sets the instance name shown to candidates and interviewers.
 
 Set `PORTAL_PUBLIC_URL` to the URL candidates actually type. Besides the PDF handout, its
