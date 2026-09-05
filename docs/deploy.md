@@ -22,10 +22,19 @@ The deploy user must be in the `docker` group. The stack is driven from
 ```bash
 cd /opt/interview/environments
 cp .env.example .env          # then set APP_ENV=prod and override EVERY credential
+mkdir -p secrets && cp /path/to/gcp-sa.json secrets/   # BEFORE the first `up`
 docker compose build          # slow: the workspace image pulls the full DS stack
 docker compose up -d
 docker compose ps             # all services healthy
 ```
+
+The Vertex key must be in place before the first `up`. Compose is configured with
+`create_host_path: false` for that mount, so a missing key aborts the `up` with a mount
+error naming the path — deliberately, because the short mount syntax used to have Docker
+create it as a root-owned *directory* instead. unillm then reported healthy and every
+completion failed at request time with `[Errno 21] Is a directory`, which the candidate
+saw as an HTTP 500. Confirm the real thing works with **Test Gemini** in the admin panel
+under **LLM proxy**.
 
 The stack boots fail-closed: with `APP_ENV=prod` it refuses to start on the public
 dev credentials, so `PORTAL_SECRET`, `UNILLM_MASTER_KEY` and an admin credential
