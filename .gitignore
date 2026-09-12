@@ -37,3 +37,24 @@ reports/
 .DS_Store
 .idea/
 .vscode/
+
+# local assistant / code-agent scratch and instruction files — host-local, never
+# committed (they describe one contributor's tooling, not the project)
+.aider*
+.claude/
+.cline*
+.codeium/
+.continue/
+.cursor/
+.cursorrules
+.cursorignore
+.gemini/
+.github/copilot-instructions.md
+.roo/
+.specstory/
+.tabnine/
+.windsurf/
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+GEMINI.md

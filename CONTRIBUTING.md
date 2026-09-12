@@ -28,10 +28,27 @@ these areas. Changing one is a documented change (update the area README and
 - Commit messages: imperative summary line, prefixed with the area (`portal:`,
   `problems:`, `proxy:`, `docs:`) when applicable.
 
+## Hard rules
+
+These are release-blocking, not advisory.
+
+- **Candidate visibility contract:** only `candidate_paths` from `problem.yaml` may
+  ever reach a candidate workspace. Solutions, rubrics, and data generators must never
+  be mounted, copied, served, or logged where a candidate can see them.
+- **Secrets** (Vertex AI key, admin credentials) live in host-local `.env` only —
+  never committed, never injected into the candidate workspace (candidates get the
+  proxy's key, nothing else).
+- **Generated datasets are never committed** (`problems/*/data/out/` is gitignored).
+- **Audit streams are append-only**; nothing candidate-reachable may write to them.
+- **No real people in the repo.** Reports under `config/reviews/` are placeholders;
+  `candidate_data/` and `reports/` are host-local and gitignored.
+- **Keep docs truthful:** if implementation diverges from a doc, update the doc in the
+  same change.
+
 ## Definition of done (any slice)
 
-1. Respects every hard rule in `CONTRIBUTING.md` (visibility contract, secrets, append-only
-   audit) — these are release-blocking, not advisory.
+1. Respects every hard rule above (visibility contract, secrets, append-only
+   audit).
 2. Runs inside the compose stack on 8 GB — "works on my machine" outside compose
    doesn't count.
 3. Docs truthful: if you diverged from a doc, update it in the same change.
