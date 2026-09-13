@@ -455,7 +455,7 @@ def transcript_view(req, sid):
 @router.route("GET", "/admin/sessions/<sid>/answers")
 def answers_view(req, sid):
     """What the candidate actually selected on every multiple-choice question, plus the
-    timestamped trail of how they got there. Selections only — the rubric answer key is
+    timestamped trail of how they got there. Selections only — an answer key is
     interviewer material and is never read by this service (visibility contract)."""
     who, redirect = _require(req)
     if redirect:

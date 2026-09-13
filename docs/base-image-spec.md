@@ -75,8 +75,8 @@ environments/
 | Kernel with 400k-row pandas workload + xgboost/torch training | 2–4 |
 | **Headroom** | **≥1.5** |
 
-Problems declare `expected_peak_ram_gb`; CI runs each reference solution in a
-memory-capped container to enforce it.
+Problems declare `expected_peak_ram_gb`; CI runs each problem's generator and a
+representative workload in a memory-capped container to enforce it.
 
 ## Version pinning
 

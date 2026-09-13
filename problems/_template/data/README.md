@@ -8,4 +8,5 @@
 |---|---|---|
 | | | |
 
-Notes on quirks candidates are *meant* to discover go in `rubric.md`, not here.
+Notes on quirks candidates are *meant* to discover don't belong in this repo at all —
+keep them with your interview notes.

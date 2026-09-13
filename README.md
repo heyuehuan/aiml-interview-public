@@ -14,7 +14,7 @@ reports, a generic instance name, and no candidate data of any kind.
 
 | Directory | Purpose |
 |---|---|
-| `problems/` | Interview problems: manifests (the problem index), statements, datasets/generators, starter code, rubrics, reference solutions, and the packager. Ships two examples. |
+| `problems/` | Interview problems: manifests (the problem index), statements, datasets/generators, starter code, and the packager. Ships two examples. |
 | `environments/` | The whole running stack: compose file, workspace image (code-server, JupyterLab, ML stack — pinned via `requirements.lock`), and `portal/` — the candidate portal **and** interviewer admin panel (session lifecycle, moderation, audit review). |
 | `proxy/` | Managed LLM proxy (unillm) — model allowlist, budget cutoff, rate limits, full request transcript. |
 | `scripts/` | Session export/reset, the shadow.git snapshot agent, deploy. |
@@ -63,7 +63,7 @@ report pages. Production deployment: `docs/deploy.md`.
 ## What ships as examples
 
 - **`problems/ml-txn-anomaly-001`** — a modelling task on a synthetic transaction log
-  (seeded generator, planted pitfalls, interviewer rubric). The data is generated at
+  (seeded generator, planted pitfalls). The data is generated at
   package time; nothing is committed.
 - **`problems/ml-eval-concepts-001`** — a five-question multiple-choice screen showing
   the MCQ format: option runs render as checkboxes and every selection is recorded.

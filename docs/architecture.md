@@ -89,7 +89,7 @@ inside it is writable by the person being recorded.
 ## Design principles
 
 1. **Problems are data, platform is code.** A problem is a self-describing directory
-   (manifest + statement + rubric + solution). Adding a problem never requires
+   (manifest + statement + starter code + dataset generator). Adding a problem never requires
    platform changes. Dataset tooling is deferred — the template and
    contribution guide define the contract now.
 2. **Candidate-visible vs interviewer-only is enforced by packaging.** Only manifest-

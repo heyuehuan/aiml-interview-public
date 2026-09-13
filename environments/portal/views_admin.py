@@ -1212,7 +1212,7 @@ question as testimony.</div>"""
 
 def admin_answers_page(who, s, problems, captured=True, notice=None, error=None):
     """The interviewer's answer sheet. Shows what was selected and when it changed —
-    never a rubric key, which this service does not read. ``captured=False`` marks a
+    never an answer key, which this service does not read. ``captured=False`` marks a
     session that predates answer capture: absence renders as "Not captured" and a
     banner says why."""
     sid = s["id"]

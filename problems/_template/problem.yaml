@@ -1,7 +1,7 @@
 # Problem manifest — consumed by the packager (problems/package.py) and the portal's
 # problem index (registry.py). Only the fields below exist; anything else you add is
-# ignored by everything (schema trimmed 2026-07-30 — put interviewer
-# guidance in rubric.md, and declare Python dependencies in
+# ignored by everything (schema trimmed 2026-07-30 — keep interviewer
+# notes out of the repo, and declare Python dependencies in
 # environments/requirements.workspace.txt + regenerate requirements.lock).
 id: <track>-<slug>-<nnn>
 title: Human-readable title

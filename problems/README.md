@@ -14,17 +14,22 @@ problems/
     │                       #
     ├── problem.md          # candidate-facing statement            [CANDIDATE]
     ├── starter/            # starter code/notebooks given as-is    [CANDIDATE]
-    ├── data/
-    │   ├── generate.py     # synthetic dataset generator (seeded)  [interviewer]
-    │   └── README.md       # data dictionary                       [CANDIDATE]
-    ├── rubric.md           # scoring guide, follow-up questions    [interviewer]
-    └── solution/           # reference solution(s)                 [interviewer]
+    └── data/
+        ├── generate.py     # synthetic dataset generator (seeded)  [interviewer]
+        └── README.md       # data dictionary                       [CANDIDATE]
 ```
+
+**Statements only — no scoring material.** Rubrics, answer keys and reference solutions
+are deliberately not kept in this repo. Published next to the problem they bias everyone
+who reads them: the candidate who finds the repo, and the interviewer who scores against
+someone else's grid instead of the work in front of them. Keep assessment notes wherever
+your hiring record lives.
 
 **Visibility is enforced by the provisioner, not convention:** only `problem.md`,
 `starter/`, `data/README.md`, and the *generated output* of `data/generate.py` are
-copied into a candidate workspace. `rubric.md`, `solution/`, and `generate.py` itself
-never leave this repo.
+copied into a candidate workspace. `generate.py` itself never leaves this repo, and the
+packager still refuses `rubric.md`, `solution/`, and answer-key-shaped files by name — so
+interviewer material added to a problem later cannot reach a workspace by accident.
 
 ## Problem IDs
 
@@ -53,14 +58,13 @@ contract problems design against; detailed standards come later.
 ## Writing a good problem
 
 - **Layered difficulty**: a core task most candidates finish, plus stretch parts that
-  separate levels. The rubric maps parts to signals.
+  separate levels.
 - **Realistic mess**: data should contain the kinds of defects the job actually has
-  (dupes, mixed types, leakage traps) — deliberately and documented in the rubric.
+  (dupes, mixed types, leakage traps) — planted deliberately, never by accident.
 - **Judgment over recall**: prefer "choose and defend an evaluation metric" over
   "implement X from memory".
-- **Rubric first-class**: every problem ships `rubric.md` with a scoring grid,
-  expected pitfalls, and interviewer follow-up questions. A problem without a rubric
-  doesn't get registered.
+- **Statement carries its own weight**: a candidate should be able to start from
+  `problem.md` alone, with no interviewer commentary to fill in gaps.
 - **Time-boxed**: state expected duration in the manifest; verify by dogfooding.
 
 ## Adding a problem

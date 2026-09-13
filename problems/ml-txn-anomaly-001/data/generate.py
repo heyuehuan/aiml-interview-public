@@ -2,7 +2,7 @@
 
 Interviewer-only. Deterministic for a given seed.
 
-Planted pitfalls (documented in rubric.md):
+Planted pitfalls:
   1. `review_outcome` — post-review column, near-perfect leakage for the label.
   2. ~1.5% exact duplicate rows (double-posted transactions).
   3. `amount` mixes currencies; `currency` column must be used to normalize.
